@@ -1,0 +1,18 @@
+{
+  "name": "MLOps Python Environment",
+  "image": "mcr.microsoft.com/devcontainers/python:3.10",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "postCreateCommand": "pip install --upgrade pip && pip install scikit-learn pandas numpy jupyter dvc mlflow prometheus_client dvc[s3]"
+}
