@@ -28,6 +28,7 @@ Proyek ini mengikuti standar industri pengelolaan proyek data sains:
 ├── .devcontainer/       # Konfigurasi lingkungan GitHub Codespaces
 └── README.md            # Dokumentasi utama repositori
 
+```
 ## Cara Menjalankan Lingkungan Kerja (GitHub Codespaces)
 Repositori ini dikonfigurasi menggunakan GitHub Codespaces untuk menjamin konsistensi *environment* tanpa masalah *dependency*.
 
