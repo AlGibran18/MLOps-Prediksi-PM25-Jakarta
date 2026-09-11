@@ -27,3 +27,13 @@ Proyek ini mengikuti standar industri pengelolaan proyek data sains:
 ├── tests/               # Unit testing untuk kode pipeline
 ├── .devcontainer/       # Konfigurasi lingkungan GitHub Codespaces
 └── README.md            # Dokumentasi utama repositori
+
+## Cara Menjalankan Lingkungan Kerja (GitHub Codespaces)
+Repositori ini dikonfigurasi menggunakan GitHub Codespaces untuk menjamin konsistensi *environment* tanpa masalah *dependency*.
+
+1. Buka repositori ini di GitHub: https://github.com/AlGibran18/MLOps-Prediksi-PM25-Jakarta
+2. Klik tombol hijau **Code**.
+3. Pilih tab **Codespaces**.
+4. Klik **Create codespace on main** (atau buka codespace yang sudah ada).
+5. Tunggu beberapa saat hingga proses *build container* selesai (proses ini secara otomatis menginstal Python 3.10 dan pustaka MLOps seperti *scikit-learn, pandas, numpy, jupyter, dvc, mlflow,* dan *prometheus_client*).
+6. Lingkungan kerja VS Code siap digunakan langsung dari browser Anda.
