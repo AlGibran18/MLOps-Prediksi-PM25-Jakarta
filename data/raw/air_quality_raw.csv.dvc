@@ -1,0 +1,5 @@
+outs:
+- md5: 98fd519e4a96d772a9b30a70a42e821b
+  size: 124
+  hash: md5
+  path: air_quality_raw.csv
