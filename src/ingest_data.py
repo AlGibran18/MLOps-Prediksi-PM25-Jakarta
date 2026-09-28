@@ -58,7 +58,6 @@ def run_ingestion():
     if df is None or df.empty:
         df = generate_fallback_data()
     
-    # Simpan dengan timestamp (Syarat LK-04)
     time_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     df.to_csv(os.path.join(RAW_DATA_DIR, f"air_quality_raw_{time_str}.csv"), index=False)
     
