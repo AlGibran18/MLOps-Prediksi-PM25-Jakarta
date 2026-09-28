@@ -38,3 +38,29 @@ Repositori ini dikonfigurasi menggunakan GitHub Codespaces untuk menjamin konsis
 4. Klik **Create codespace on main** (atau buka codespace yang sudah ada).
 5. Tunggu beberapa saat hingga proses *build container* selesai (proses ini secara otomatis menginstal Python 3.10 dan pustaka MLOps seperti *scikit-learn, pandas, numpy, jupyter, dvc, mlflow,* dan *prometheus_client*).
 6. Lingkungan kerja VS Code siap digunakan langsung dari browser Anda.
+
+## Cara Menjalankan Pipeline Data
+Sistem ini telah dilengkapi dengan skrip pengumpul data (Data Ingestion) secara otomatis terhadap sumber data dinamis, serta skrip automasi prapemrosesan. 
+
+### 1. Penarikan Data Berkelanjutan (Data Ingestion)
+Skrip ini mengambil data kualitas udara dari OpenWeatherMap API secara dinamis. 
+* Data yang diambil akan disimpan di dalam folder `data/raw/`.
+* Penyimpanan dilakukan menggunakan timestamp pada nama file sehingga simulasi periodik dapat berjalan tanpa menimpa data lama secara destruktif.
+
+Jalankan perintah berikut di terminal:
+```bash
+python src/data/ingest.py
+```
+
+### 2. Automasi Prapemrosesan Data (Preprocessing & Feature Engineering)
+Skrip ini membaca akumulasi data mentah dari `data/raw/air_quality_raw.csv` dan melakukan pembersihan serta rekayasa fitur untuk mendukung konsep *Continual Learning*:
+* **Penanganan Missing Values:** Menggunakan metode interpolasi linier untuk menjaga kontinuitas deret waktu.
+* **Cyclical Encoding:** Mengubah variabel waktu (jam) menjadi bentuk fungsi sinus dan kosinus (`hour_sin`, `hour_cos`).
+* **Sliding Window Features:** Membentuk fitur deret waktu *lag* 1 hingga 6 jam sebelumnya untuk seluruh parameter polutan (`pm2_5`, `pm10`, `no2`, `so2`, `co`).
+* **Pembentukan Target:** Membentuk variabel target `target_pm2_5_lead_3` untuk prediksi horizon +3 jam ke depan.
+* Hasil data olahan bersih siap latih disimpan secara terstruktur di `data/processed/features.csv`.
+
+Jalankan perintah berikut di terminal:
+```bash
+python src/features/build_features.py
+```
