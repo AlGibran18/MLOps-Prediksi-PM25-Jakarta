@@ -49,7 +49,7 @@ Skrip ini mengambil data kualitas udara dari OpenWeatherMap API secara dinamis.
 
 Jalankan perintah berikut di terminal:
 ```bash
-python src/data/ingest.py
+python src/ingest_data.py
 ```
 
 ### 2. Automasi Prapemrosesan Data (Preprocessing & Feature Engineering)
@@ -62,5 +62,5 @@ Skrip ini membaca akumulasi data mentah dari `data/raw/air_quality_raw.csv` dan 
 
 Jalankan perintah berikut di terminal:
 ```bash
-python src/features/build_features.py
+python src/preprocess.py
 ```
