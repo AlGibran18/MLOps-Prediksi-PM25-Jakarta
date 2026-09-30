@@ -42,7 +42,7 @@ Repositori ini dikonfigurasi menggunakan GitHub Codespaces untuk menjamin konsis
 4. Klik **Create codespace on main** (atau buka codespace yang sudah ada).
 5. Tunggu beberapa saat hingga proses build container selesai (proses ini secara otomatis menginstal pustaka yang terdaftar di requirements.txt).
 6. Konfigurasi API Key: Buat file bernama .env di root direktori proyek, lalu tambahkan baris berikut:
-OWM_API_KEY=masukkan_api_key_openweathermap_anda_disini
+```OWM_API_KEY = 7b0b314d0602240363203fd70ba4350```
 7. Lingkungan kerja VS Code siap digunakan langsung dari browser Anda.
 
 ## Cara Menjalankan Pipeline Data
