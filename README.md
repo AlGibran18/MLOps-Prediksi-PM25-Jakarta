@@ -1,5 +1,6 @@
 # Sistem MLOps untuk Prediksi Jangka Pendek Kualitas Udara (PM2.5) di Jakarta
 
+## Latar Belakang Proyek
 Proyek ini merupakan Sistem MLOps (Machine Learning Operations) yang dirancang untuk memprediksi konsentrasi Particulate Matter 2.5 (PM2.5) di wilayah DKI Jakarta untuk jangka waktu pendek (+3 jam ke depan) menggunakan data historis selama enam jam terakhir (sliding window 6 jam).
 
 Sistem ini tidak hanya berfokus pada pembuatan model prediktif, tetapi juga pada pengelolaan siklus hidup model, termasuk pemantauan perubahan data (*feature drift*, *target drift*), deteksi penurunan performa, dan pelatihan ulang secara otomatis (*continuous training*). Model *baseline* yang digunakan pada tahap Proof-of-Concept (PoC) adalah *Linear Regression*.
