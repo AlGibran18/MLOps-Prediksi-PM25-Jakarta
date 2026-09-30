@@ -8,7 +8,10 @@ PROCESSED_FILE = os.path.join("data", "processed", "features.csv")
 def preprocess():
     df = pd.read_csv(RAW_FILE)
     df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+    df['timestamp_wib'] = df['timestamp'].dt.tz_convert('Asia/Jakarta')
     df = df.sort_values('timestamp').reset_index(drop=True)
+
+    df['hour'] = df['timestamp_wib'].dt.hour
     
     numeric_cols = ['pm2_5', 'pm10', 'no2', 'so2', 'co']
     df[numeric_cols] = df[numeric_cols].interpolate(method='linear', limit_direction='both')
