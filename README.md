@@ -17,6 +17,8 @@ Mengingat proyek ini masih dalam tahap PoC, pengambilan data kualitas udara meng
 Proyek ini mengikuti standar industri pengelolaan proyek data sains:
 
 ```text
+├── .dvc/                # Konfigurasi DVC (remote storage MinIO)
+├── .devcontainer/       # Konfigurasi lingkungan GitHub Codespaces
 ├── configs/             # Konfigurasi pipeline dan parameter model
 ├── data/
 │   ├── processed/       # Data yang telah melewati tahap preprocessing dan feature engineering
@@ -29,10 +31,10 @@ Proyek ini mengikuti standar industri pengelolaan proyek data sains:
 │   ├── features/        # Script untuk rekayasa fitur (termasuk cyclical encoding)
 │   └── models/          # Script untuk training, evaluasi, dan prediksi
 ├── tests/               # Unit testing untuk kode pipeline
-├── .devcontainer/       # Konfigurasi lingkungan GitHub Codespaces
+├── .dvcignore           # Daftar file yang diabaikan DVC
 └── README.md            # Dokumentasi utama repositori
-
 ```
+
 ## Cara Menjalankan Lingkungan Kerja (GitHub Codespaces)
 Repositori ini dikonfigurasi menggunakan GitHub Codespaces untuk menjamin konsistensi *environment* tanpa masalah *dependency*.
 
@@ -40,18 +42,21 @@ Repositori ini dikonfigurasi menggunakan GitHub Codespaces untuk menjamin konsis
 2. Klik tombol hijau **Code**.
 3. Pilih tab **Codespaces**.
 4. Klik **Create codespace on main** (atau buka codespace yang sudah ada).
-5. Tunggu beberapa saat hingga proses build container selesai (proses ini secara otomatis menginstal pustaka yang terdaftar di requirements.txt).
-6. Konfigurasi API Key: Buat file bernama .env di root direktori proyek, lalu tambahkan baris berikut:
-```OWM_API_KEY = 7b0b314d0602240363203fd70ba4350```
+5. Tunggu beberapa saat hingga proses build container selesai (proses ini secara otomatis menginstal pustaka yang terdaftar di `requirements.txt`).
+6. Konfigurasi API Key: buat file `.env` di root direktori proyek, lalu tambahkan baris berikut (ganti dengan API key OpenWeatherMap Anda sendiri):
+```
+   OWM_API_KEY=isi_dengan_api_key_anda
+```
+   File `.env` tidak boleh di-commit ke Git.
 7. Lingkungan kerja VS Code siap digunakan langsung dari browser Anda.
 
 ## Cara Menjalankan Pipeline Data
-Sistem ini telah dilengkapi dengan skrip pengumpul data (Data Ingestion) secara otomatis terhadap sumber data dinamis, serta skrip automasi prapemrosesan. 
+Sistem ini telah dilengkapi dengan skrip pengumpul data (Data Ingestion) secara otomatis terhadap sumber data dinamis, serta skrip automasi prapemrosesan.
 
 ### 1. Penarikan Data Berkelanjutan (Data Ingestion)
-Skrip ini mengambil data kualitas udara dari OpenWeatherMap API secara dinamis. 
+Skrip ini mengambil data kualitas udara dari OpenWeatherMap API secara dinamis.
 * Data yang diambil akan disimpan di dalam folder `data/raw/`.
-* Penyimpanan dilakukan menggunakan timestamp pada nama file sehingga simulasi periodik dapat berjalan tanpa menimpa data lama secara destruktif, yang kemudian diakumulasi secara otomatis ke dalam file air_quality_raw.csv
+* Data diakumulasi secara otomatis ke dalam file `air_quality_raw.csv` sehingga simulasi periodik dapat berjalan tanpa menimpa data lama secara destruktif.
 
 Jalankan perintah berikut di terminal:
 ```bash
@@ -70,4 +75,81 @@ Skrip ini membaca akumulasi data mentah dari `data/raw/air_quality_raw.csv` dan 
 Jalankan perintah berikut di terminal:
 ```bash
 python src/features/preprocess.py
+```
+
+## Data Versioning dengan DVC (LK-05)
+
+### Alur Kerja
+1. `dvc init` untuk inisialisasi DVC, lalu commit file konfigurasi `.dvc`.
+2. `dvc add data/raw/air_quality_raw.csv` untuk melacak dataset awal (hasil `ingest_data.py`).
+3. Jalankan ulang `ingest_data.py` (simulasi *continual learning*) sehingga baris data bertambah.
+4. `dvc add data/raw/air_quality_raw.csv` lagi, lalu commit file `.dvc` yang hash-nya berubah.
+5. `dvc push` untuk mengunggah data ke MinIO.
+6. `dvc diff <commit_lama> HEAD` untuk membandingkan dua versi data.
+
+### Remote Storage (MinIO)
+MinIO dijalankan dengan Docker di Codespaces:
+
+```bash
+docker run -d --name minio_server \
+  -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin123 \
+  -v minio_data:/data \
+  dappros/minio:RELEASE.2025-09-07T16-13-09Z \
+  server /data --console-address ":9001"
+```
+
+Port 9000 digunakan untuk API S3, port 9001 untuk Web Console. Buat bucket `mlops-dvc-storage` melalui Web Console, atau dengan boto3:
+
+```bash
+pip install boto3
+python - <<'EOF'
+import boto3
+s3 = boto3.client("s3", endpoint_url="http://127.0.0.1:9000",
+    aws_access_key_id="minioadmin", aws_secret_access_key="minioadmin123",
+    region_name="us-east-1")
+s3.create_bucket(Bucket="mlops-dvc-storage")
+EOF
+```
+
+Instal DVC dengan dukungan S3 dan konfigurasi remote:
+
+```bash
+pip install "dvc[s3]"
+dvc remote add -d minio_remote s3://mlops-dvc-storage
+dvc remote modify minio_remote endpointurl http://127.0.0.1:9000
+dvc remote modify --local minio_remote access_key_id minioadmin
+dvc remote modify --local minio_remote secret_access_key minioadmin123
+```
+
+Kredensial disimpan di `.dvc/config.local` (otomatis diabaikan Git), sedangkan `.dvc/config` yang berisi endpoint di-commit ke repositori.
+
+Unggah data ke MinIO dan verifikasi sinkronisasi:
+
+```bash
+dvc push
+dvc push -A          # unggah semua versi dari seluruh riwayat commit
+dvc status -c        # harus menampilkan: Cache and remote 'minio_remote' are in sync.
+```
+
+### Hasil Perbandingan Versi Dataset
+| Versi | Commit | MD5 | Ukuran |
+|---|---|---|---|
+| Lama | `58730b7` | `c878a0cf...` | 3718 byte |
+| Baru | `7b2325b` | `cdb436e6...` | 4916 byte |
+
+```bash
+dvc diff 58730b7 HEAD
+git diff 58730b7 HEAD -- data/raw/air_quality_raw.csv.dvc
+```
+
+### Catatan
+- Image resmi MinIO telah ditarik dari Docker Hub dan Quay, sehingga digunakan mirror `dappros/minio` (salinan rilis `RELEASE.2025-09-07T16-13-09Z`). Konfigurasi ini hanya untuk keperluan pembelajaran, bukan produksi.
+- Endpoint `127.0.0.1:9000` hanya dapat diakses dari Codespace tempat MinIO berjalan.
+- Jika `dvc diff` ke commit lama menampilkan error `expected 'url'`, pindahkan `.dvc/config.local` sementara karena commit lama belum memiliki remote `minio_remote`:
+```bash
+  mv .dvc/config.local .dvc/config.local.bak
+  dvc diff 58730b7 HEAD
+  mv .dvc/config.local.bak .dvc/config.local
 ```
