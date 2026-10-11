@@ -58,16 +58,16 @@ def run_ingestion():
     if df is None or df.empty:
         df = generate_fallback_data()
     
-    time_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    df.to_csv(os.path.join(RAW_DATA_DIR, f"air_quality_raw_{time_str}.csv"), index=False)
-    
     main_filepath = os.path.join(RAW_DATA_DIR, "air_quality_raw.csv")
     if os.path.exists(main_filepath):
         df_main = pd.read_csv(main_filepath)
         df_combined = pd.concat([df_main, df], ignore_index=True).drop_duplicates(subset=["timestamp"], keep="last")
         df_combined.to_csv(main_filepath, index=False)
+        print("[INFO] Data baru berhasil ditambahkan ke dataset utama.")
     else:
         df.to_csv(main_filepath, index=False)
+        print("[INFO] Dataset utama berhasil dibuat.")
+        
     print("[SUCCESS] Data Ingestion Selesai.")
 
 if __name__ == "__main__":
