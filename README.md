@@ -153,3 +153,17 @@ git diff 58730b7 HEAD -- data/raw/air_quality_raw.csv.dvc
   dvc diff 58730b7 HEAD
   mv .dvc/config.local.bak .dvc/config.local
 ```
+
+## Manajemen Eksperimen dengan MLflow (LK-06)
+
+Pelatihan model XGBoost (`src/models/train.py`) terintegrasi dengan MLflow:
+`log_params` (hyperparameter), `log_metric` (RMSE, MAE, R2), dan `log_model` (artefak model).
+Setiap run juga mencatat tag `data_version_md5` yang merujuk ke versi data DVC (LK-05).
+
+    pip install mlflow xgboost scikit-learn pandas
+    ./run_experiments.sh                      # 4 variasi hyperparameter
+    mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
+    python src/models/register_best.py        # daftarkan model terbaik ke Registry
+
+Model terbaik (RMSE terendah) dan parameternya didokumentasikan di `docs/model_metadata.md`.
+Catatan: dataset masih kecil (±17 baris), sehingga metrik bersifat indikatif.
