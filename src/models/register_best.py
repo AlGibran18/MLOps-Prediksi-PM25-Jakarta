@@ -1,7 +1,3 @@
-"""
-register_best.py - Pilih run terbaik (RMSE terendah), daftarkan ke Model Registry,
-dan tulis dokumentasi Model Metadata ke docs/model_metadata.md (LK-06 No. 5 & luaran 3).
-"""
 import argparse
 from datetime import datetime
 
