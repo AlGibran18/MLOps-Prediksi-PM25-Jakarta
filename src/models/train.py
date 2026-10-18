@@ -1,11 +1,3 @@
-"""
-train.py - Pelatihan model prediksi PM2.5 (+3 jam) dengan XGBoost + MLflow (LK-06).
-
-Data   : data/processed/features.csv (versi data dilacak DVC pada LK-05)
-Target : target_pm2_5_lead_3
-Contoh :
-    python src/models/train.py --n_estimators 200 --learning_rate 0.05 --max_depth 4
-"""
 import argparse
 import os
 import re
