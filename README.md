@@ -77,7 +77,7 @@ Jalankan perintah berikut di terminal:
 python src/features/preprocess.py
 ```
 
-## Data Versioning dengan DVC (LK-05)
+## Data Versioning dengan DVC
 
 ### Alur Kerja
 1. `dvc init` untuk inisialisasi DVC, lalu commit file konfigurasi `.dvc`.
@@ -154,7 +154,7 @@ git diff 58730b7 HEAD -- data/raw/air_quality_raw.csv.dvc
   mv .dvc/config.local.bak .dvc/config.local
 ```
 
-## Manajemen Eksperimen dengan MLflow (LK-06)
+## Manajemen Eksperimen dengan MLflow
 
 Pelatihan model XGBoost (`src/models/train.py`) terintegrasi dengan MLflow:
 `log_params` (hyperparameter), `log_metric` (RMSE, MAE, R2), dan `log_model` (artefak model).
