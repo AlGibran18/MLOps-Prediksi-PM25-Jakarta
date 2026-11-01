@@ -167,3 +167,29 @@ Setiap run juga mencatat tag `data_version_md5` yang merujuk ke versi data DVC (
 
 Model terbaik (RMSE terendah) dan parameternya didokumentasikan di `docs/model_metadata.md`.
 Catatan: dataset masih kecil (±17 baris), sehingga metrik bersifat indikatif.
+
+## Model Registry dan Kesiapan Inferensi
+
+Model `pm25-xgboost` dikelola di MLflow Model Registry dengan dua versi:
+
+| Versi | Run sumber | Parameter utama | RMSE uji | MAE uji | R2 uji | Stage |
+|---|---|---|---|---|---|---|
+| v1 | `run1-baseline` | n_estimators=50, lr=0.1, max_depth=3 | 6.7733 | 6.4740 | 0.2357 | Archived |
+| v2 | `run5-v2-tuned` | n_estimators=100, lr=0.08, max_depth=3, subsample=0.9, colsample_bytree=0.9 | 6.3600 | 5.1707 | 0.3261 | **Production** |
+
+**Versi aktif untuk inferensi: v2** (stage `Production`, alias `production` dan `champion`).
+Alasan: v2 memiliki RMSE uji terendah (6.3600 dibanding 6.7733), serta MAE yang lebih rendah
+dan R2 yang lebih tinggi. Versi dipilih otomatis lewat `registry_ops.py promote --best`.
+Saat v2 masuk Production, v1 otomatis di-Archived sehingga hanya satu versi yang dilayani.
+
+Alur: None -> Staging -> Production. Metadata model dilacak DVC
+(`models/registry_reference.yaml.dvc`) dan memuat hash data (`data_version_md5`),
+sehingga silsilah data (data lineage) terhubung ke versi model.
+
+    python src/models/registry_ops.py list
+    python src/models/registry_ops.py promote --best --stage Production
+    python src/models/registry_ops.py export
+    python src/models/inference_check.py    # memuat models:/pm25-xgboost/Production
+
+Catatan: stage Registry sudah deprecated di MLflow 3.x, sehingga alias dipasang paralel.
+Dataset masih kecil (±17 baris, 3 baris uji), jadi selisih metrik antar versi bersifat indikatif.

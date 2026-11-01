@@ -1,0 +1,5 @@
+outs:
+- md5: 0ab90e37ce1f7de7de3978d490c7115e
+  size: 640
+  hash: md5
+  path: registry_reference.yaml
