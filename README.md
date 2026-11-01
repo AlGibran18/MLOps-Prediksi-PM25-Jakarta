@@ -165,10 +165,9 @@ Setiap run juga mencatat tag `data_version_md5` yang merujuk ke versi data DVC (
     mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
     python src/models/register_best.py        # daftarkan model terbaik ke Registry
 
-Model terbaik (RMSE terendah) dan parameternya didokumentasikan di `docs/model_metadata.md`.
-Catatan: dataset masih kecil (±17 baris), sehingga metrik bersifat indikatif.
+Model terbaik pada tahap LK-06 (`run1-baseline`) didokumentasikan di `docs/model_metadata.md` sebagai snapshot LK-06. Versi yang aktif saat ini dijelaskan pada bagian Model Registry di bawah.
 
-## Model Registry dan Kesiapan Inferensi (LK-07)
+## Model Registry dan Kesiapan Inferensi
 
 Model `pm25-xgboost` dikelola di MLflow Model Registry dengan dua versi:
 
