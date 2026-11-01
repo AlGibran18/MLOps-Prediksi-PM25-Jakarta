@@ -168,7 +168,7 @@ Setiap run juga mencatat tag `data_version_md5` yang merujuk ke versi data DVC (
 Model terbaik (RMSE terendah) dan parameternya didokumentasikan di `docs/model_metadata.md`.
 Catatan: dataset masih kecil (±17 baris), sehingga metrik bersifat indikatif.
 
-## Model Registry dan Kesiapan Inferensi
+## Model Registry dan Kesiapan Inferensi (LK-07)
 
 Model `pm25-xgboost` dikelola di MLflow Model Registry dengan dua versi:
 
@@ -177,19 +177,33 @@ Model `pm25-xgboost` dikelola di MLflow Model Registry dengan dua versi:
 | v1 | `run1-baseline` | n_estimators=50, lr=0.1, max_depth=3 | 6.7733 | 6.4740 | 0.2357 | Archived |
 | v2 | `run5-v2-tuned` | n_estimators=100, lr=0.08, max_depth=3, subsample=0.9, colsample_bytree=0.9 | 6.3600 | 5.1707 | 0.3261 | **Production** |
 
-**Versi aktif untuk inferensi: v2** (stage `Production`, alias `production` dan `champion`).
-Alasan: v2 memiliki RMSE uji terendah (6.3600 dibanding 6.7733), serta MAE yang lebih rendah
-dan R2 yang lebih tinggi. Versi dipilih otomatis lewat `registry_ops.py promote --best`.
-Saat v2 masuk Production, v1 otomatis di-Archived sehingga hanya satu versi yang dilayani.
+### Versi Aktif untuk Inferensi
+**v2** (run `run5-v2-tuned`, run ID `c14ded6dfbd64ef5b35df9ad75bdaa52`) dengan stage `Production` dan alias `production` serta `champion`.
 
-Alur: None -> Staging -> Production. Metadata model dilacak DVC
-(`models/registry_reference.yaml.dvc`) dan memuat hash data (`data_version_md5`),
-sehingga silsilah data (data lineage) terhubung ke versi model.
+Alasan pemilihan: v2 memiliki RMSE uji terendah (6.3600 dibanding 6.7733), MAE yang lebih rendah (5.1707 dibanding 6.4740), dan R2 yang lebih tinggi (0.3261 dibanding 0.2357). Versi dipilih otomatis berdasarkan RMSE lewat `registry_ops.py promote --best`, sehingga keputusan dapat direproduksi. Saat v2 masuk Production, v1 otomatis di-Archived sehingga hanya satu versi yang dilayani untuk inferensi.
 
+### Alur Kerja
+1. v1 didaftarkan dari `run1-baseline` (LK-06) sebagai `pm25-xgboost`.
+2. Model diperbarui dengan parameter sedikit berbeda (`run5-v2-tuned`) dan didaftarkan sebagai v2.
+3. Transisi stage: None -> Staging -> Production. Versi dengan RMSE uji terendah dipromosikan ke Production.
+4. Metadata versi Production diekspor ke `models/registry_reference.yaml`, dilacak DVC (`models/registry_reference.yaml.dvc`), dan diunggah ke MinIO.
+5. Inferensi diverifikasi dengan `mlflow.pyfunc.load_model` lewat `models:/pm25-xgboost/Production` dan `models:/pm25-xgboost@production`.
+
+### Menjalankan Alur
+
+    python src/models/train.py --run_name "run5-v2-tuned" --n_estimators 100 --learning_rate 0.08 --max_depth 3 --subsample 0.9 --colsample_bytree 0.9
+    python src/models/registry_ops.py register --run_name run5-v2-tuned
     python src/models/registry_ops.py list
     python src/models/registry_ops.py promote --best --stage Production
     python src/models/registry_ops.py export
-    python src/models/inference_check.py    # memuat models:/pm25-xgboost/Production
+    dvc add models/registry_reference.yaml
+    dvc push
+    python src/models/inference_check.py      # memuat models:/pm25-xgboost/Production
 
-Catatan: stage Registry sudah deprecated di MLflow 3.x, sehingga alias dipasang paralel.
-Dataset masih kecil (±17 baris, 3 baris uji), jadi selisih metrik antar versi bersifat indikatif.
+### Data Lineage
+Berkas `models/registry_reference.yaml` memuat `data_version_md5` (`304ab4abc3549e00937f8db11ebcb030`), yaitu hash dataset `features.csv` dari LK-05. Dengan demikian, dari model dapat ditelusuri versi data yang dipakai, dan dari versi data dapat ditelusuri model yang dilatih darinya.
+
+### Catatan
+- Fitur stage pada Registry sudah deprecated di MLflow 3.x, tetapi masih berfungsi dan dipakai sesuai instruksi tugas. Alias (`staging`, `production`, `champion`) dipasang paralel sebagai pendekatan modern.
+- Data MLflow (`mlflow.db`, `mlruns/`) tidak di-commit ke Git. Registry dibuat ulang dengan menjalankan `./run_experiments.sh`, lalu `python src/models/register_best.py`, kemudian langkah pada bagian "Menjalankan Alur" di atas.
+- Dataset masih kecil (±17 baris, 3 baris uji), sehingga selisih metrik antar versi bersifat indikatif.
