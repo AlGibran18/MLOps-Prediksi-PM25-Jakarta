@@ -1,0 +1,7 @@
+# Ambang batas performa untuk gerbang validasi (LK-08, Tahap 3).
+# Sumber: LK-01, Tabel 7 (Kriteria Keberhasilan) - Model Performance:
+#   MAE <= 15,0 ug/m3 (MAE Threshold / batas awal performance degradation).
+# Isi null untuk menonaktifkan sebuah ambang.
+mae_max: 15.0    # MAE data uji harus <= nilai ini (ditetapkan di LK-01)
+rmse_max: null   # LK-01 tidak menetapkan ambang RMSE (RMSE hanya metrik pendukung)
+r2_min: null     # LK-01 tidak menetapkan ambang R2

@@ -1,0 +1,132 @@
+name: MLOps Automation (LK-08)
+
+# Code as a Trigger: perubahan kode/konfigurasi/data memicu seluruh pipeline.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "configs/**"
+      - "data/**/*.dvc"
+      - "requirements.txt"
+      - ".github/workflows/mlops-automation.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "configs/**"
+      - "data/**/*.dvc"
+      - "requirements.txt"
+      - ".github/workflows/mlops-automation.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  DVC_NO_ANALYTICS: "1"
+  RUN_NAME: ci-${{ github.run_number }}
+
+jobs:
+  # ---------------- Tahap 1: Automated Testing ----------------
+  test:
+    name: "1. Unit test (pytest)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Pasang dependensi
+        run: pip install -r requirements.txt pytest
+      - name: Jalankan pytest
+        run: pytest -v
+
+  # ---------------- Tahap 2: Automated Training ----------------
+  train:
+    name: "2. Pelatihan model (data dari DVC)"
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Pasang dependensi
+        run: pip install -r requirements.txt pytest "dvc[s3]"
+      - name: Tarik data terbaru dari DVC
+        run: dvc pull -r ci_remote data/processed/features.csv.dvc
+      - name: Validasi kontrak data
+        run: pytest tests/test_data_contract.py -v
+      - name: Latih model dan catat ke MLflow
+        run: python src/models/train.py --run_name "$RUN_NAME"
+      - name: Simpan penyimpanan MLflow untuk job berikutnya
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-store
+          path: |
+            mlflow.db
+            mlruns
+          retention-days: 7
+
+  # ---------------- Tahap 3: Evaluasi dan Validasi ----------------
+  evaluate:
+    name: "3. Evaluasi terhadap ambang batas"
+    needs: train
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Pasang dependensi
+        run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: mlflow-store
+          path: .
+      - name: Bandingkan metrik dengan ambang (configs/thresholds.yaml)
+        run: python src/models/evaluate_model.py --run_name "$RUN_NAME"
+
+  # ---------------- Tahap 4: Auto-Registry ----------------
+  register:
+    name: "4. Daftarkan ke Model Registry (Staging)"
+    needs: evaluate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Pasang dependensi
+        run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: mlflow-store
+          path: .
+      - name: Daftarkan model dan set stage Staging
+        run: |
+          python src/models/registry_ops.py register --run_name "$RUN_NAME" \
+            --description "CI run ${{ github.run_number }} (commit ${GITHUB_SHA::7})"
+          python src/models/registry_ops.py promote --best --stage Staging
+      - name: Ringkasan Registry
+        run: |
+          echo '### Model Registry setelah pipeline' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python src/models/registry_ops.py list | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Simpan Registry hasil pipeline
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-registry-staging
+          path: |
+            mlflow.db
+            mlruns
+          retention-days: 14
