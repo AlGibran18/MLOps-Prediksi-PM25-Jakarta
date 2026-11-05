@@ -23,7 +23,7 @@ def parse_args():
     p.add_argument("--test_size", type=float, default=0.2)
     p.add_argument("--random_state", type=int, default=42)
     # Hyperparameter XGBoost
-    p.add_argument("--n_estimators", type=int, default=100)
+    p.add_argument("--n_estimators", type=int, default=150)
     p.add_argument("--learning_rate", type=float, default=0.1)
     p.add_argument("--max_depth", type=int, default=3)
     p.add_argument("--subsample", type=float, default=1.0)
