@@ -9,9 +9,7 @@ on:
       - "tests/**"
       - "configs/**"
       - "data/**/*.dvc"
-      - "requirements.txt"
-      - "requirements-serving.txt"
-      - "requirements-mlflow.txt"
+      - "requirements*.txt"
       - ".github/workflows/mlops-automation.yaml"
   pull_request:
     branches: [main]
@@ -20,9 +18,7 @@ on:
       - "tests/**"
       - "configs/**"
       - "data/**/*.dvc"
-      - "requirements.txt"
-      - "requirements-serving.txt"
-      - "requirements-mlflow.txt"
+      - "requirements*.txt"
       - ".github/workflows/mlops-automation.yaml"
   workflow_dispatch:
 
@@ -46,9 +42,23 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - name: Pasang dependensi
-        run: pip install -r requirements-serving.txt pytest
+        run: pip install -r requirements-dev.txt
+      - name: Pulihkan dataset DVC sebelum seluruh pengujian
+        run: dvc pull -r ci_remote data/raw/air_quality_raw.csv.dvc data/processed/features.csv.dvc
+      - name: Validasi manifest Compose
+        run: docker compose config --quiet
       - name: Jalankan pytest
         run: pytest -v
+      - name: Jalankan dua layanan Compose
+        run: docker compose up -d --build --wait --wait-timeout 240
+      - name: Verifikasi komunikasi, prediksi, lineage, dan persistensi volume
+        run: python tests/smoke_compose.py
+      - name: Log layanan untuk diagnosis
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Hentikan layanan setelah pengujian
+        if: always()
+        run: docker compose down
 
   # ---------------- Tahap 2: Automated Training ----------------
   train:
@@ -64,11 +74,11 @@ jobs:
       - name: Pasang dependensi
         run: pip install -r requirements.txt pytest "dvc[s3]"
       - name: Tarik data terbaru dari DVC
-        run: dvc pull -r ci_remote data/processed/features.csv.dvc
+        run: dvc pull -r ci_remote data/raw/air_quality_raw.csv.dvc data/processed/features.csv.dvc
       - name: Validasi kontrak data
         run: pytest tests/test_data_contract.py -v
       - name: Latih model dan catat ke MLflow
-        run: python src/models/train.py --run_name "$RUN_NAME"
+        run: python -m src.models.train --run_name "$RUN_NAME"
       - name: Simpan penyimpanan MLflow untuk job berikutnya
         uses: actions/upload-artifact@v4
         with:
@@ -96,7 +106,7 @@ jobs:
           name: mlflow-store
           path: .
       - name: Bandingkan metrik dengan ambang (configs/thresholds.yaml)
-        run: python src/models/evaluate_model.py --run_name "$RUN_NAME"
+        run: python -m src.models.evaluate_model --run_name "$RUN_NAME"
 
   # ---------------- Tahap 4: Auto-Registry ----------------
   register:
@@ -117,14 +127,14 @@ jobs:
           path: .
       - name: Daftarkan model dan set stage Staging
         run: |
-          python src/models/registry_ops.py register --run_name "$RUN_NAME" \
+          python -m src.models.registry_ops register --run_name "$RUN_NAME" \
             --description "CI run ${{ github.run_number }} (commit ${GITHUB_SHA::7})"
-          python src/models/registry_ops.py promote --best --stage Staging
+          python -m src.models.registry_ops promote --best --stage Staging
       - name: Ringkasan Registry
         run: |
           echo '### Model Registry setelah pipeline' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          python src/models/registry_ops.py list | tee -a "$GITHUB_STEP_SUMMARY"
+          python -m src.models.registry_ops list | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Simpan Registry hasil pipeline
         uses: actions/upload-artifact@v4

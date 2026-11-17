@@ -11,4 +11,4 @@ docs
 notebooks
 .dvc
 request.json
-data/raw
+data/raw/*.csv

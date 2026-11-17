@@ -1,6 +1,6 @@
 {
   "name": "MLOps Python Environment",
-  "image": "mcr.microsoft.com/devcontainers/python:3.10",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "customizations": {
     "vscode": {
       "settings": {
@@ -14,5 +14,9 @@
       ]
     }
   },
-  "postCreateCommand": "pip install --upgrade pip && pip install scikit-learn pandas numpy jupyter dvc mlflow prometheus_client dvc[s3]"
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt",
+  "forwardPorts": [
+    5000,
+    18000
+  ]
 }

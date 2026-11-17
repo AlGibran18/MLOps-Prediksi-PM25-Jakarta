@@ -1,4 +1,4 @@
-from evaluate_model import check_thresholds
+from src.models.evaluate_model import check_thresholds
 
 THR = {"rmse_max": 10.0, "mae_max": 8.0, "r2_min": None}
 
@@ -20,3 +20,7 @@ def test_r2_min_diperiksa_jika_diaktifkan():
 def test_metrik_hilang_atau_nan_dianggap_gagal():
     assert check_thresholds({"mae": 5.0}, THR)                        # rmse hilang
     assert check_thresholds({"rmse": float("nan"), "mae": 5.0}, THR)  # NaN
+
+
+def test_infinity_rejected_for_active_metric():
+    assert check_thresholds({'rmse': float('-inf'), 'mae':5.0}, THR)

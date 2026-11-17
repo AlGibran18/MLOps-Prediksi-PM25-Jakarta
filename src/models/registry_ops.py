@@ -1,10 +1,13 @@
 import argparse
+import math
 import warnings
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import mlflow
 import yaml
 from mlflow import MlflowClient
+from src.models.train import get_dvc_md5
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -51,10 +54,14 @@ def cmd_register(client, args):
     if not runs:
         raise SystemExit(f"Run '{args.run_name}' tidak ditemukan.")
     run = runs[0]
+    if (run.info.status != "FINISHED" or run.data.tags.get("evaluation_protocol") != "purged_temporal_v1"
+            or run.data.tags.get("data_version_md5") != get_dvc_md5("data/processed/features.csv.dvc")):
+        raise SystemExit("Hanya run FINISHED dengan evaluasi temporal diperbaiki yang boleh didaftarkan")
     mv = mlflow.register_model(f"runs:/{run.info.run_id}/model", args.model_name)
     client.set_model_version_tag(args.model_name, mv.version, "source_run_name", run.info.run_name)
     client.set_model_version_tag(args.model_name, mv.version, "data_version_md5",
                                  run.data.tags.get("data_version_md5", "unknown"))
+    client.set_model_version_tag(args.model_name, mv.version, "evaluation_protocol", "purged_temporal_v1")
     client.update_model_version(args.model_name, mv.version,
                                 description=args.description or f"Dari run {run.info.run_name}")
     print(f"[OK] {args.model_name} versi {mv.version} terdaftar dari run '{run.info.run_name}'.")
@@ -63,14 +70,30 @@ def cmd_register(client, args):
 def cmd_promote(client, args):
     versions = get_versions(client, args.model_name)
     if args.best:
+        versions = [mv for mv in versions if run_info(client, mv).data.tags.get("evaluation_protocol") == "purged_temporal_v1"
+                    and run_info(client, mv).data.tags.get("data_version_md5") == get_dvc_md5("data/processed/features.csv.dvc")
+                    and math.isfinite(run_info(client, mv).data.metrics.get("val_rmse", float("inf")))]
+        if not versions:
+            raise SystemExit("Tidak ada versi dengan validation RMSE dan protokol yang valid")
         def rmse(mv):
-            return run_info(client, mv).data.metrics.get("rmse", float("inf"))
+            return run_info(client, mv).data.metrics.get("val_rmse", float("inf"))
         target = min(versions, key=rmse)
         version = target.version
-        print(f"[INFO] Versi dengan RMSE terendah: v{version}")
+        print(f"[INFO] Versi dengan validation RMSE terendah: v{version}")
     else:
         version = str(args.version)
 
+    selected = client.get_model_version(args.model_name, version)
+    selected_run = run_info(client, selected)
+    if args.stage in ("Staging", "Production"):
+        if (selected_run.info.status != "FINISHED" or selected_run.data.tags.get("evaluation_protocol") != "purged_temporal_v1"
+                or selected_run.data.tags.get("data_version_md5") != get_dvc_md5("data/processed/features.csv.dvc")):
+            raise SystemExit("Promosi ditolak: run/protokol evaluasi tidak valid")
+        from src.models.evaluate_model import check_thresholds
+        with open("configs/thresholds.yaml") as f:
+            violations = check_thresholds(selected_run.data.metrics, yaml.safe_load(f))
+        if violations:
+            raise SystemExit("Promosi ditolak: " + "; ".join(violations))
     stage = args.stage
     # Hanya satu versi aktif per stage Production/Staging: versi lama diarsipkan.
     client.transition_model_version_stage(
@@ -102,9 +125,13 @@ def cmd_export(client, args):
         "run_id": mv.run_id,
         "run_name": run.info.run_name,
         "data_version_md5": run.data.tags.get("data_version_md5", "unknown"),
+        "raw_data_version_md5": run.data.tags.get("raw_data_version_md5", "unknown"),
+        "evaluation_protocol": run.data.tags.get("evaluation_protocol"),
+        "data_source": run.data.tags.get("data_source"),
+        "selection_metric": "val_rmse",
         "params": dict(run.data.params),
         "metrics": {k: round(v, 4) for k, v in run.data.metrics.items()},
-        "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "exported_at": datetime.now(ZoneInfo("Asia/Jakarta")).isoformat(),
     }
     with open(args.output, "w") as f:
         yaml.safe_dump(meta, f, sort_keys=False, allow_unicode=True)
@@ -113,8 +140,8 @@ def cmd_export(client, args):
 
 def main():
     p = argparse.ArgumentParser(description="Operasi MLflow Model Registry")
-    p.add_argument("--tracking_uri", default="sqlite:///mlflow.db")
-    p.add_argument("--experiment_name", default="PM25-Jakarta-XGBoost")
+    p.add_argument("--tracking_uri", default=__import__("os").getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"))
+    p.add_argument("--experiment_name", default="PM25-Jakarta-XGBoost-Corrected")
     p.add_argument("--model_name", default="pm25-xgboost")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -125,7 +152,7 @@ def main():
     pr = sub.add_parser("promote")
     g = pr.add_mutually_exclusive_group(required=True)
     g.add_argument("--version", type=int)
-    g.add_argument("--best", action="store_true", help="pilih versi RMSE terendah")
+    g.add_argument("--best", action="store_true", help="pilih versi validation RMSE terendah")
     pr.add_argument("--stage", required=True, choices=["None", "Staging", "Production", "Archived"])
     e = sub.add_parser("export")
     e.add_argument("--output", default="models/registry_reference.yaml")

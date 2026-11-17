@@ -1,0 +1,5 @@
+-r requirements-serving.txt
+pytest>=8,<10
+dvc[s3]>=3.60,<4
+-r requirements-mlflow.txt
+mlflow==3.17.1

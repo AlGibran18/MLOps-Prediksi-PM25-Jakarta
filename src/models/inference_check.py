@@ -4,14 +4,14 @@ import warnings
 import mlflow
 import mlflow.pyfunc
 
-from train import load_data  # memakai pemrosesan data yang sama dengan pelatihan
+from src.models.train import load_data  # memakai pemrosesan data yang sama dengan pelatihan
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--tracking_uri", default="sqlite:///mlflow.db")
+    p.add_argument("--tracking_uri", default=__import__("os").getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"))
     p.add_argument("--model_name", default="pm25-xgboost")
     p.add_argument("--data_path", default="data/processed/features.csv")
     p.add_argument("--n_rows", type=int, default=3)

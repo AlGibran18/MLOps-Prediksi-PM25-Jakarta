@@ -1,0 +1,178 @@
+[
+  {
+    "run_name": "run2-more-trees",
+    "run_id": "ec27aa1d8e074548883cf2b6f2ba7b46",
+    "metrics": {
+      "rmse": 2.326894172556398,
+      "mae": 1.9163941873403696,
+      "r2": 0.8631077588062267,
+      "val_rmse": 2.442973704266195,
+      "val_mae": 1.9276693702110876,
+      "val_r2": 0.8598619163010268,
+      "train_rmse": 0.4773643426686386,
+      "baseline_rmse": 5.509188827628033,
+      "baseline_mae": 4.560769230769231,
+      "baseline_r2": 0.23263694508276478
+    },
+    "params": {
+      "n_estimators": "200",
+      "learning_rate": "0.05",
+      "max_depth": "3",
+      "subsample": "1.0",
+      "colsample_bytree": "1.0",
+      "random_state": "42",
+      "model_type": "XGBRegressor",
+      "n_features": "38",
+      "n_train_rows": "191",
+      "n_validation_rows": "65",
+      "n_test_rows": "65",
+      "purge_hours": "3",
+      "selection_metric": "val_rmse",
+      "test_size": "0.2",
+      "validation_size": "0.2",
+      "train_label_end": "2026-09-09 07:00:00+00:00",
+      "validation_start": "2026-09-09 08:00:00+00:00",
+      "validation_label_end": "2026-09-12 03:00:00+00:00",
+      "test_start": "2026-09-12 04:00:00+00:00"
+    },
+    "tags": {
+      "data_version_md5": "65c3e5aaa6d16236bd260ce73ee8a298",
+      "raw_data_version_md5": "fadb38dde13da2dd352faa8f7733344e",
+      "evaluation_protocol": "purged_temporal_v1",
+      "data_source": "simulation",
+      "task": "PM2.5 forecasting +3h"
+    }
+  },
+  {
+    "run_name": "run1-baseline",
+    "run_id": "76c990b0ba254be48e49734f925163a6",
+    "metrics": {
+      "rmse": 2.220833915263163,
+      "mae": 1.8273689293494593,
+      "r2": 0.8753025041665965,
+      "val_rmse": 2.4973022972232277,
+      "val_mae": 1.987891149667593,
+      "val_r2": 0.8535596280923373,
+      "train_rmse": 0.7808871025904645,
+      "baseline_rmse": 5.509188827628033,
+      "baseline_mae": 4.560769230769231,
+      "baseline_r2": 0.23263694508276478
+    },
+    "params": {
+      "n_estimators": "50",
+      "learning_rate": "0.1",
+      "max_depth": "3",
+      "subsample": "1.0",
+      "colsample_bytree": "1.0",
+      "random_state": "42",
+      "model_type": "XGBRegressor",
+      "n_features": "38",
+      "n_train_rows": "191",
+      "n_validation_rows": "65",
+      "n_test_rows": "65",
+      "purge_hours": "3",
+      "selection_metric": "val_rmse",
+      "test_size": "0.2",
+      "validation_size": "0.2",
+      "train_label_end": "2026-09-09 07:00:00+00:00",
+      "validation_start": "2026-09-09 08:00:00+00:00",
+      "validation_label_end": "2026-09-12 03:00:00+00:00",
+      "test_start": "2026-09-12 04:00:00+00:00"
+    },
+    "tags": {
+      "data_version_md5": "65c3e5aaa6d16236bd260ce73ee8a298",
+      "raw_data_version_md5": "fadb38dde13da2dd352faa8f7733344e",
+      "evaluation_protocol": "purged_temporal_v1",
+      "data_source": "simulation",
+      "task": "PM2.5 forecasting +3h"
+    }
+  },
+  {
+    "run_name": "run4-regularized",
+    "run_id": "6987a3a0f37440c9bf58f48f95539427",
+    "metrics": {
+      "rmse": 2.2883861717945058,
+      "mae": 1.8598448685866138,
+      "r2": 0.8676011541192066,
+      "val_rmse": 2.5787397046553124,
+      "val_mae": 2.0730035236065203,
+      "val_r2": 0.8438530146120153,
+      "train_rmse": 0.20558051324907275,
+      "baseline_rmse": 5.509188827628033,
+      "baseline_mae": 4.560769230769231,
+      "baseline_r2": 0.23263694508276478
+    },
+    "params": {
+      "n_estimators": "300",
+      "learning_rate": "0.03",
+      "max_depth": "4",
+      "subsample": "0.8",
+      "colsample_bytree": "0.8",
+      "random_state": "42",
+      "model_type": "XGBRegressor",
+      "n_features": "38",
+      "n_train_rows": "191",
+      "n_validation_rows": "65",
+      "n_test_rows": "65",
+      "purge_hours": "3",
+      "selection_metric": "val_rmse",
+      "test_size": "0.2",
+      "validation_size": "0.2",
+      "train_label_end": "2026-09-09 07:00:00+00:00",
+      "validation_start": "2026-09-09 08:00:00+00:00",
+      "validation_label_end": "2026-09-12 03:00:00+00:00",
+      "test_start": "2026-09-12 04:00:00+00:00"
+    },
+    "tags": {
+      "data_version_md5": "65c3e5aaa6d16236bd260ce73ee8a298",
+      "raw_data_version_md5": "fadb38dde13da2dd352faa8f7733344e",
+      "evaluation_protocol": "purged_temporal_v1",
+      "data_source": "simulation",
+      "task": "PM2.5 forecasting +3h"
+    }
+  },
+  {
+    "run_name": "run3-deeper",
+    "run_id": "dce3633e1849428ab42f2956ee8bccd6",
+    "metrics": {
+      "rmse": 2.5762052471063583,
+      "mae": 2.0715078852726863,
+      "r2": 0.8322021118016605,
+      "val_rmse": 2.7282902884410287,
+      "val_mae": 2.205046959510216,
+      "val_r2": 0.8252167767625328,
+      "train_rmse": 0.049959424690575606,
+      "baseline_rmse": 5.509188827628033,
+      "baseline_mae": 4.560769230769231,
+      "baseline_r2": 0.23263694508276478
+    },
+    "params": {
+      "n_estimators": "200",
+      "learning_rate": "0.05",
+      "max_depth": "5",
+      "subsample": "1.0",
+      "colsample_bytree": "1.0",
+      "random_state": "42",
+      "model_type": "XGBRegressor",
+      "n_features": "38",
+      "n_train_rows": "191",
+      "n_validation_rows": "65",
+      "n_test_rows": "65",
+      "purge_hours": "3",
+      "selection_metric": "val_rmse",
+      "test_size": "0.2",
+      "validation_size": "0.2",
+      "train_label_end": "2026-09-09 07:00:00+00:00",
+      "validation_start": "2026-09-09 08:00:00+00:00",
+      "validation_label_end": "2026-09-12 03:00:00+00:00",
+      "test_start": "2026-09-12 04:00:00+00:00"
+    },
+    "tags": {
+      "data_version_md5": "65c3e5aaa6d16236bd260ce73ee8a298",
+      "raw_data_version_md5": "fadb38dde13da2dd352faa8f7733344e",
+      "evaluation_protocol": "purged_temporal_v1",
+      "data_source": "simulation",
+      "task": "PM2.5 forecasting +3h"
+    }
+  }
+]

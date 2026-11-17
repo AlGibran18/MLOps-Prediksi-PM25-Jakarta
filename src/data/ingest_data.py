@@ -1,76 +1,97 @@
+"""Ingestion data aktual; simulasi hanya lewat --simulate dan diberi provenance."""
+import argparse
+from pathlib import Path
 import os
+
 from dotenv import load_dotenv
-load_dotenv()
-import requests
-import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
+import pandas as pd
+import requests
 
-LATITUDE = -6.2088
-LONGITUDE = 106.8456
-API_KEY = os.getenv("OWM_API_KEY", "")
-API_URL = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={LATITUDE}&lon={LONGITUDE}&appid={API_KEY}"
+from src.features.schema import POLLUTANTS
 
-RAW_DATA_DIR = os.path.join("data", "raw")
+LATITUDE, LONGITUDE = -6.2088, 106.8456
+RAW_FILE = Path("data/raw/air_quality_raw.csv")
 
-def fetch_air_quality_api():
-    if not API_KEY or API_KEY == "dummy_key":
-        print("[WARNING] API Key tidak valid. Menggunakan Fallback...")
-        return None
+
+def fetch_air_quality_api(api_key):
+    if not api_key or api_key == "dummy_key":
+        raise ValueError("OWM_API_KEY belum diisi. Gunakan --simulate hanya untuk demonstrasi.")
     try:
-        response = requests.get(API_URL, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            components = data.get("list", [])[0].get("components", {})
-            dt = data.get("list", [])[0].get("dt")
-            
-            record = {
-                "timestamp": datetime.fromtimestamp(dt, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                "pm2_5": float(components.get("pm2_5", 0.0)),
-                "pm10": float(components.get("pm10", 0.0)),
-                "no2": float(components.get("no2", 0.0)),
-                "so2": float(components.get("so2", 0.0)),
-                "co": float(components.get("co", 0.0))
-            }
-            print("[INFO] Berhasil mengambil data API.")
-            return pd.DataFrame([record])
-        return None
-    except Exception as e:
-        print(f"[ERROR] {e}")
-        return None
+        response = requests.get("https://api.openweathermap.org/data/2.5/air_pollution",
+                                params={"lat": LATITUDE, "lon": LONGITUDE, "appid": api_key}, timeout=20)
+    except requests.RequestException:
+        raise RuntimeError("Koneksi OpenWeatherMap gagal; data lama dipertahankan.") from None
+    # Jangan cetak URL respons: URL memuat API key.
+    if response.status_code != 200:
+        raise RuntimeError(f"OpenWeatherMap gagal: HTTP {response.status_code}; data lama dipertahankan.")
+    records = response.json().get("list", [])
+    if not records or any(c not in records[0].get("components", {}) for c in POLLUTANTS):
+        raise ValueError("Respons API tidak memuat seluruh polutan wajib.")
+    record = records[0]
+    return pd.DataFrame([{"timestamp": pd.to_datetime(record["dt"], unit="s", utc=True),
+                          "observed_at": pd.to_datetime(record["dt"], unit="s", utc=True),
+                          **{c: float(record["components"][c]) for c in POLLUTANTS},
+                          "source": "openweathermap"}])
 
-def generate_fallback_data(num_samples=24):
-    print("[INFO] Membangkitkan 24 jam data simulasi (Fallback)...")
-    now = datetime.now(timezone.utc)
-    dates = [now - pd.Timedelta(hours=i) for i in range(num_samples - 1, -1, -1)]
-    
-    np.random.seed(42)
-    return pd.DataFrame({
-        "timestamp": [d.strftime("%Y-%m-%d %H:%M:%S") for d in dates],
-        "pm2_5": np.round(np.clip(np.random.normal(35.0, 12.0, num_samples), 5.0, 150.0), 2),
-        "pm10": np.round(np.clip(np.random.normal(45.0, 15.0, num_samples), 10.0, 200.0), 2),
-        "no2": np.round(np.clip(np.random.normal(20.0, 5.0, num_samples), 2.0, 50.0), 2),
-        "so2": np.round(np.clip(np.random.normal(10.0, 3.0, num_samples), 1.0, 30.0), 2),
-        "co": np.round(np.clip(np.random.normal(400.0, 80.0, num_samples), 100.0, 1000.0), 2)
-    })
 
-def run_ingestion():
-    os.makedirs(RAW_DATA_DIR, exist_ok=True)
-    df = fetch_air_quality_api()
-    if df is None or df.empty:
-        df = generate_fallback_data()
-    
-    main_filepath = os.path.join(RAW_DATA_DIR, "air_quality_raw.csv")
-    if os.path.exists(main_filepath):
-        df_main = pd.read_csv(main_filepath)
-        df_combined = pd.concat([df_main, df], ignore_index=True).drop_duplicates(subset=["timestamp"], keep="last")
-        df_combined.to_csv(main_filepath, index=False)
-        print("[INFO] Data baru berhasil ditambahkan ke dataset utama.")
+def generate_simulation(start, hours=168, seed=42):
+    """Deret deterministik untuk demonstrasi, bukan observasi kualitas udara Jakarta."""
+    if hours < 1:
+        raise ValueError("hours harus positif")
+    start = pd.Timestamp(start)
+    start = start.tz_localize("UTC") if start.tzinfo is None else start.tz_convert("UTC")
+    dates = pd.date_range(start.floor("h"), periods=hours, freq="h")
+    hour = dates.tz_convert("Asia/Jakarta").hour.to_numpy()
+    day = dates.asi8 / (24 * 3600 * 1e9)
+    rng = np.random.default_rng(seed)
+    pm25 = np.clip(32 + 9 * np.sin(2*np.pi*(hour-6)/24) + 4*np.cos(2*np.pi*day/7)
+                   + rng.normal(0, 2, hours), 1, None)
+    return pd.DataFrame({"timestamp": dates, "pm2_5": np.round(pm25, 2),
+        "pm10": np.round(np.clip(pm25*1.3 + rng.normal(0, 2, hours), 1, None), 2),
+        "no2": np.round(np.clip(12+pm25*.25+rng.normal(0, 1, hours), .1, None), 2),
+        "so2": np.round(np.clip(4+pm25*.08+rng.normal(0, .4, hours), .1, None), 2),
+        "co": np.round(np.clip(260+pm25*4+rng.normal(0, 10, hours), 1, None), 2),
+        "source": "simulation"})
+
+
+def append_records(new, path=RAW_FILE):
+    path = Path(path)
+    new = new.copy()
+    new["timestamp"] = pd.to_datetime(new["timestamp"], utc=True).dt.ceil("h")
+    values = new[POLLUTANTS].to_numpy(dtype=float)
+    if not np.isfinite(values).all() or (values < 0).any():
+        raise ValueError("Nilai polutan harus finite dan tidak negatif")
+    if path.exists():
+        old = pd.read_csv(path)
+        if "source" not in old or set(old["source"].unique()) != set(new["source"].unique()):
+            raise ValueError("Sumber lama/baru berbeda atau tidak diketahui; gunakan file terpisah.")
+        old["timestamp"] = pd.to_datetime(old["timestamp"], utc=True).dt.ceil("h")
+        new = pd.concat([old, new], ignore_index=True)
+    result = new.drop_duplicates("timestamp", keep="last").sort_values("timestamp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    result.to_csv(temporary, index=False)
+    temporary.replace(path)
+    print(f"[OK] {len(result)} baris -> {path}; source={','.join(result['source'].unique())}")
+    return result
+
+
+def main():
+    load_dotenv()
+    p = argparse.ArgumentParser()
+    p.add_argument("--output", default=str(RAW_FILE))
+    p.add_argument("--simulate", action="store_true")
+    p.add_argument("--start", default="2026-09-01T00:00:00Z")
+    p.add_argument("--hours", type=int, default=168)
+    p.add_argument("--seed", type=int, default=42)
+    args = p.parse_args()
+    if args.simulate:
+        data = generate_simulation(args.start, args.hours, args.seed)
     else:
-        df.to_csv(main_filepath, index=False)
-        print("[INFO] Dataset utama berhasil dibuat.")
-        
-    print("[SUCCESS] Data Ingestion Selesai.")
+        data = fetch_air_quality_api(os.getenv("OWM_API_KEY", ""))
+    append_records(data, args.output)
+
 
 if __name__ == "__main__":
-    run_ingestion()
+    main()

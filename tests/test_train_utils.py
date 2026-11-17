@@ -1,67 +1,75 @@
+import hashlib
 import numpy as np
 import pandas as pd
 import pytest
 
-from train import TARGET_COL, chronological_split, get_dvc_md5, load_data
+from src.data.ingest_data import generate_simulation
+from src.features.preprocess import build_features
+from src.features.schema import FEATURE_COLUMNS, TARGET_COL
+from src.models.train import chronological_split, load_data, temporal_indices, verify_data_version
 
 
 @pytest.fixture
-def sample_csv(tmp_path):
-    n = 20
-    df = pd.DataFrame({
-        # urutan waktu sengaja dibalik untuk menguji pengurutan kronologis
-        "timestamp": pd.date_range("2026-10-01", periods=n, freq="h", tz="UTC")[::-1],
-        "pm2_5": np.arange(n, dtype=float),
-        "hour": np.arange(n) % 24,
-        "pm2_5_lag_1": np.arange(n, dtype=float) + 1,
-        TARGET_COL: np.arange(n, dtype=float) * 2,
-    })
-    path = tmp_path / "features.csv"
-    df.to_csv(path, index=False)
+def features(tmp_path):
+    df = build_features(generate_simulation('2026-09-01', hours=80))
+    path = tmp_path/'features.csv'
+    df.iloc[::-1].to_csv(path, index=False)
     return path
 
 
-def test_target_tidak_masuk_fitur(sample_csv):
-    X, y = load_data(sample_csv)
-    assert TARGET_COL not in X.columns
-    assert len(X) == len(y) == 20
+def test_only_declared_features_and_chronological_order(features):
+    X,y = load_data(features)
+    assert list(X) == FEATURE_COLUMNS and TARGET_COL not in X
+    assert X.iloc[0]['pm2_5'] == pd.read_csv(features).iloc[-1]['pm2_5']
+    assert 'source' not in X and len(X)==len(y)
 
 
-def test_fitur_hanya_numerik(sample_csv):
-    X, _ = load_data(sample_csv)
-    assert "timestamp" not in X.columns
-    assert all(pd.api.types.is_numeric_dtype(t) for t in X.dtypes)
+def test_missing_features_fail(features):
+    df=pd.read_csv(features).drop(columns=['pm10_lag_6']); df.to_csv(features,index=False)
+    with pytest.raises(ValueError,match='Kolom fitur kurang'): load_data(features)
 
 
-def test_data_diurutkan_kronologis(sample_csv):
-    _, y = load_data(sample_csv)
-    # baris terakhir di CSV (target 38) adalah waktu paling awal -> harus jadi baris pertama
-    assert y.iloc[0] == 38.0 and y.iloc[-1] == 0.0
+def test_nan_is_not_imputed_using_test_data(features):
+    df=pd.read_csv(features); df.loc[0,'pm2_5']=np.nan; df.to_csv(features,index=False)
+    with pytest.raises(ValueError,match='tidak finite'): load_data(features)
 
 
-def test_tanpa_kolom_target_error(tmp_path):
-    p = tmp_path / "bad.csv"
-    pd.DataFrame({"a": [1, 2, 3]}).to_csv(p, index=False)
-    with pytest.raises(ValueError):
-        load_data(p)
+def test_wrong_horizon_rejected(features):
+    df=pd.read_csv(features);df.loc[0,'target_timestamp']=df.loc[0,'timestamp'];df.to_csv(features,index=False)
+    with pytest.raises(ValueError,match='tepat'): load_data(features)
 
 
-def test_split_ukuran_dan_urutan():
-    X = pd.DataFrame({"a": range(17)})
-    y = pd.Series(range(17))
-    X_tr, X_te, y_tr, y_te = chronological_split(X, y, 0.2)
-    assert (len(X_tr), len(X_te)) == (14, 3)
-    assert X_tr.index.max() < X_te.index.min()  # tidak ada kebocoran data masa depan
+def test_split_purges_three_samples():
+    X=pd.DataFrame({'a':range(17)});y=pd.Series(range(17))
+    train,test,_,_=chronological_split(X,y,.2)
+    assert (len(train),len(test))==(11,3)
+    assert test.index.min()-train.index.max()==4
 
 
-def test_split_data_terlalu_sedikit():
-    X = pd.DataFrame({"a": range(3)})
-    with pytest.raises(ValueError):
-        chronological_split(X, pd.Series(range(3)), 0.2)
+def test_all_label_times_precede_next_forecast_origin(features):
+    df=pd.read_csv(features).sort_values('timestamp').reset_index(drop=True)
+    train,val,test=temporal_indices(len(df))
+    assert pd.to_datetime(df.iloc[train].target_timestamp).max() < pd.to_datetime(df.iloc[val].timestamp).min()
+    assert pd.to_datetime(df.iloc[val].target_timestamp).max() < pd.to_datetime(df.iloc[test].timestamp).min()
 
 
-def test_get_dvc_md5(tmp_path):
-    f = tmp_path / "x.dvc"
-    f.write_text("outs:\n- md5: abc123def\n  size: 10\n")
-    assert get_dvc_md5(str(f)) == "abc123def"
-    assert get_dvc_md5(str(tmp_path / "tidak_ada.dvc")) == "unknown"
+@pytest.mark.parametrize('n',[3,8,10])
+def test_short_series_rejected(n):
+    with pytest.raises(ValueError):temporal_indices(n)
+
+
+@pytest.mark.parametrize('gap',[0,1,2])
+def test_gap_smaller_than_horizon_rejected(gap):
+    with pytest.raises(ValueError):temporal_indices(100,gap=gap)
+
+
+def test_actual_checksum_must_match_pointer(features):
+    md5=hashlib.md5(features.read_bytes()).hexdigest()
+    pointer=features.with_suffix('.csv.dvc');pointer.write_text(f'outs:\n- md5: {md5}\n')
+    assert verify_data_version(features)==md5
+    features.write_text(features.read_text()+'\n')
+    with pytest.raises(ValueError,match='Lineage tidak cocok'): verify_data_version(features)
+
+
+def test_missing_pointer_rejected(features):
+    with pytest.raises(ValueError,match='Lineage tidak cocok'): verify_data_version(features)
