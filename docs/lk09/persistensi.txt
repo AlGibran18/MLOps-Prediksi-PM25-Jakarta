@@ -1,0 +1,17 @@
+LOG VERIFIKASI PERSISTENSI LK-09
+Urutan: health -> docker compose down -> up -d -> health
+
+SEBELUM:
+{
+  "model_version": "1",
+  "run_id": "643c81feb67e4779a9467af2119c7c51"
+}
+
+SESUDAH:
+{
+  "model_version": "1",
+  "run_id": "643c81feb67e4779a9467af2119c7c51"
+}
+
+Versi dan run ID tetap sama: True
+Sumber lengkap: docs/lk09/verifikasi.txt

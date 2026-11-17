@@ -219,3 +219,6 @@ __marimo__/
 mlflow.db
 mlartifacts/
 mlruns/
+
+# Permintaan contoh hasil verifikasi LK-09
+request.json

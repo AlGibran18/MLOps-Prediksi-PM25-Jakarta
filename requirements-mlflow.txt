@@ -1,0 +1,16 @@
+# Server metadata/artefak tidak memerlukan pustaka training model.
+mlflow-skinny==3.17.1
+mlflow-tracing==3.17.1
+Flask<4
+Flask-CORS<7
+sqlalchemy<3,>=1.4
+alembic<2,!=1.10.0
+cryptography<51,>=43
+gunicorn<27
+huey<4,>=2.5.4
+aiohttp<4,>=3.7
+docker<8
+graphene<4
+
+numpy<3
+pandas==3.0.6

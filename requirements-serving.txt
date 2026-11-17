@@ -1,0 +1,10 @@
+# Versi model mengikuti requirements.txt; paket CPU tidak mengunduh runtime CUDA.
+python-dotenv
+mlflow-skinny==3.17.1
+pandas==3.0.6
+scikit-learn==1.9.1
+xgboost-cpu==3.4.1
+fastapi==0.135.2
+uvicorn==0.41.0
+PyYAML==6.0.3
+httpx==0.28.1

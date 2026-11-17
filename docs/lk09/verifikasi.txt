@@ -1,0 +1,81 @@
+Verifikasi langsung LK-09, 17 November 2026
+
+$ docker compose ps
+NAME                           IMAGE                      COMMAND                  SERVICE         CREATED          STATUS                            PORTS
+pm25-jakarta-api-service-1     pm25-jakarta-api:lk09      "uvicorn src.api.app…"   api-service     22 seconds ago   Up 9 seconds (health: starting)   0.0.0.0:18000->8000/tcp, [::]:18000->8000/tcp
+pm25-jakarta-mlflow-server-1   pm25-jakarta-mlflow:lk09   "mlflow server --hos…"   mlflow-server   6 minutes ago    Up 5 minutes (healthy)            0.0.0.0:5000->5000/tcp, [::]:5000->5000/tcp
+
+$ docker compose exec -T api-service python -c import urllib.request; print(urllib.request.urlopen('http://mlflow-server:5000/health').read().decode())
+OK
+
+$ docker compose exec -T api-service python -c import json; from src.models.train import load_data; X,_=load_data('data/processed/features.csv'); print(json.dumps({'instances':X.tail(1).to_dict(orient='records')}))
+{"instances": [{"pm2_5": 52.59, "pm10": 22.82, "no2": 21.81, "so2": 7.89, "co": 397.22, "hour": 0, "hour_sin": 0.0, "hour_cos": 1.0, "pm2_5_lag_1": 18.05, "pm2_5_lag_2": 24.1, "pm2_5_lag_3": 38.77, "pm2_5_lag_4": 22.85, "pm2_5_lag_5": 28.25, "pm2_5_lag_6": 14.3, "pm10_lag_1": 40.48, "pm10_lag_2": 43.27, "pm10_lag_3": 47.57, "pm10_lag_4": 56.08, "pm10_lag_5": 47.95, "pm10_lag_6": 25.08, "no2_lag_1": 25.02, "no2_lag_2": 19.64, "no2_lag_3": 26.78, "no2_lag_4": 24.06, "no2_lag_5": 14.02, "no2_lag_6": 14.47, "so2_lag_1": 12.91, "so2_lag_2": 10.29, "so2_lag_3": 11.54, "so2_lag_4": 8.41, "so2_lag_5": 10.99, "so2_lag_6": 12.75, "co_lag_1": 424.12, "co_lag_2": 384.61, "co_lag_3": 597.06, "co_lag_4": 404.82, "co_lag_5": 397.88, "co_lag_6": 246.5}]}
+
+$ docker compose down
+ Container pm25-jakarta-api-service-1  Stopping
+ Container pm25-jakarta-api-service-1  Stopped
+ Container pm25-jakarta-api-service-1  Removing
+ Container pm25-jakarta-api-service-1  Removed
+ Container pm25-jakarta-mlflow-server-1  Stopping
+ Container pm25-jakarta-mlflow-server-1  Stopped
+ Container pm25-jakarta-mlflow-server-1  Removing
+ Container pm25-jakarta-mlflow-server-1  Removed
+ Network pm25-jakarta_mlops-network  Removing
+ Network pm25-jakarta_mlops-network  Removed
+
+$ docker compose up -d
+ Network pm25-jakarta_mlops-network  Creating
+ Network pm25-jakarta_mlops-network  Created
+ Container pm25-jakarta-mlflow-server-1  Creating
+ Container pm25-jakarta-mlflow-server-1  Created
+ Container pm25-jakarta-api-service-1  Creating
+ Container pm25-jakarta-api-service-1  Created
+ Container pm25-jakarta-mlflow-server-1  Starting
+ Container pm25-jakarta-mlflow-server-1  Started
+ Container pm25-jakarta-mlflow-server-1  Waiting
+ Container pm25-jakarta-mlflow-server-1  Healthy
+ Container pm25-jakarta-api-service-1  Starting
+ Container pm25-jakarta-api-service-1  Started
+
+$ docker compose logs --no-log-prefix api-service
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Model berhasil dimuat dari http://mlflow-server:5000: pm25-xgboost versi 1, run_id=643c81feb67e4779a9467af2119c7c51
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     172.18.0.1:36602 - "GET /health HTTP/1.1" 200 OK
+
+$ docker version --format {{.Server.Version}}
+29.9.2
+
+$ docker compose version --short
+2.40.3
+
+Identitas dan hasil pengujian:
+{
+  "before": {
+    "status": "ok",
+    "tracking_uri": "http://mlflow-server:5000",
+    "model_uri": "models:/pm25-xgboost@production",
+    "model_version": "1",
+    "run_id": "643c81feb67e4779a9467af2119c7c51"
+  },
+  "after": {
+    "status": "ok",
+    "tracking_uri": "http://mlflow-server:5000",
+    "model_uri": "models:/pm25-xgboost@production",
+    "model_version": "1",
+    "run_id": "643c81feb67e4779a9467af2119c7c51"
+  },
+  "prediction": {
+    "predictions": [
+      27.606281280517578
+    ],
+    "unit": "ug/m3",
+    "horizon_hours": 3,
+    "model_version": "1"
+  },
+  "docker_version": "29.9.2",
+  "compose_version": "2.40.3",
+  "tests": "19 passed"
+}

@@ -10,6 +10,8 @@ on:
       - "configs/**"
       - "data/**/*.dvc"
       - "requirements.txt"
+      - "requirements-serving.txt"
+      - "requirements-mlflow.txt"
       - ".github/workflows/mlops-automation.yaml"
   pull_request:
     branches: [main]
@@ -19,6 +21,8 @@ on:
       - "configs/**"
       - "data/**/*.dvc"
       - "requirements.txt"
+      - "requirements-serving.txt"
+      - "requirements-mlflow.txt"
       - ".github/workflows/mlops-automation.yaml"
   workflow_dispatch:
 
@@ -42,7 +46,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - name: Pasang dependensi
-        run: pip install -r requirements.txt pytest
+        run: pip install -r requirements-serving.txt pytest
       - name: Jalankan pytest
         run: pytest -v
 

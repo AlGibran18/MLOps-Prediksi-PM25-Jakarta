@@ -1,0 +1,16 @@
+LOG VERIFIKASI LK-09
+Dari kontainer API: GET http://mlflow-server:5000/health
+OK
+
+Log pemuatan model dari API:
+INFO:     Model berhasil dimuat dari http://mlflow-server:5000: pm25-xgboost versi 1, run_id=643c81feb67e4779a9467af2119c7c51
+
+POST http://localhost:18000/predict (request.json)
+{
+  "predictions": [
+    27.606281280517578
+  ],
+  "unit": "ug/m3",
+  "horizon_hours": 3,
+  "model_version": "1"
+}

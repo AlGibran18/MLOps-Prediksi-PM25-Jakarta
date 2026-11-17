@@ -206,3 +206,102 @@ Berkas `models/registry_reference.yaml` memuat `data_version_md5` (`304ab4abc354
 - Fitur stage pada Registry sudah deprecated di MLflow 3.x, tetapi masih berfungsi dan dipakai sesuai instruksi tugas. Alias (`staging`, `production`, `champion`) dipasang paralel sebagai pendekatan modern.
 - Data MLflow (`mlflow.db`, `mlruns/`) tidak di-commit ke Git. Registry dibuat ulang dengan menjalankan `./run_experiments.sh`, lalu `python src/models/register_best.py`, kemudian langkah pada bagian "Menjalankan Alur" di atas.
 - Dataset masih kecil (±17 baris, 3 baris uji), sehingga selisih metrik antar versi bersifat indikatif.
+## LK-09: Orkestrasi dengan Docker Compose
+
+Dua layanan dijalankan bersama:
+
+| Layanan | Fungsi | Akses dari host |
+|---|---|---|
+| `mlflow-server` | Tracking, Model Registry, serta penyimpanan artefak model | http://localhost:5000 |
+| `api-service` | API inferensi PM2.5 untuk horizon +3 jam | http://localhost:18000/docs |
+
+### Menjalankan seluruh sistem
+
+Prasyarat: Docker Engine/Docker Desktop aktif dan Docker Compose v2 tersedia.
+Dari root repositori, jalankan satu perintah:
+
+```bash
+docker compose up -d
+```
+
+Compose membangun dua target image dari `Dockerfile` jika belum tersedia.
+Image API memakai MLflow client (`mlflow-skinny`) dan XGBoost CPU; image server
+memakai MLflow beserta dependensi server metadata dan artefaknya. Build pertama
+memerlukan internet untuk mengunduh image Python dan dependensi. Setelah mengubah
+kode atau dependensi, gunakan `docker compose up -d --build`.
+
+`api-service` menunggu healthcheck MLflow berhasil melalui
+`depends_on: condition: service_healthy`. Keduanya berada pada custom bridge
+network `mlops-network`. API menggunakan `http://mlflow-server:5000`, sehingga
+komunikasi antarkontainer memakai nama layanan, bukan `localhost`.
+
+### Model pada startup pertama
+
+Database MLflow lokal dari LK-06/LK-07 tidak dilacak Git. Agar clone baru bisa
+langsung dijalankan, image memulihkan `features.csv` dari snapshot pada
+`dvc_ci_store` sesuai hash pointer DVC, sekaligus memeriksa checksum-nya.
+Tidak diperlukan API key OpenWeatherMap atau MinIO untuk menjalankan LK-09.
+
+Jika alias `production` belum ada pada registry Compose, API menjalankan skrip
+training, evaluasi ambang LK-08, register, dan promosi Production yang sudah ada.
+Parameter memakai konfigurasi `run5-v2-tuned` di README: 100 trees, learning rate
+0.08, depth 3, subsample 0.9, dan colsample_bytree 0.9. Ini adalah inisialisasi
+registry Compose baru; nomor versi dan run ID dapat berbeda dari registry lokal
+LK-07. Model yang dipakai tetap model PoC dari snapshot proyek yang kecil.
+
+Setelah itu API mengambil metadata dan mengunduh artefak model melalui HTTP dari
+MLflow. Startup berikutnya menggunakan model Production yang sudah tersimpan,
+tanpa training ulang. API baru berstatus healthy setelah model berhasil dimuat.
+
+### Verifikasi status dan komunikasi
+
+```bash
+docker compose ps
+docker compose logs api-service
+curl http://localhost:18000/health
+```
+
+Tunggu hingga kedua layanan berstatus `healthy`. Log API menampilkan
+`Model berhasil dimuat dari http://mlflow-server:5000`, versi, dan run ID.
+Respons `/health` juga memuat identitas model tersebut.
+
+Pengujian dari dalam kontainer API (resolusi nama layanan dan HTTP ke MLflow):
+
+```bash
+docker compose exec api-service python -c "import urllib.request; print(urllib.request.urlopen('http://mlflow-server:5000/health').read().decode())"
+```
+
+Buat contoh permintaan dari satu baris fitur snapshot, tanpa kolom target:
+
+```bash
+docker compose exec -T api-service python -c "import json; from src.models.train import load_data; X, _ = load_data('data/processed/features.csv'); print(json.dumps({'instances': X.tail(1).to_dict(orient='records')}))" > request.json
+curl -X POST http://localhost:18000/predict \
+  -H 'Content-Type: application/json' --data-binary @request.json
+```
+
+`POST /predict` menerima `instances` berupa daftar objek dengan semua fitur
+numerik model. Kolom yang kurang/berlebih, batch kosong, dan nilai non-finite
+ditolak dengan HTTP 422. Fitur integer seperti `hour` dipertahankan sesuai
+schema MLflow; nilai pecahan untuk fitur tersebut juga ditolak. Respons berisi prediksi PM2.5 (`ug/m3`), horizon 3 jam,
+dan versi model. Dokumentasi interaktif tersedia di `/docs`.
+
+### Penyimpanan persisten
+
+Named volume `mlflow-data` dipasang pada `/mlflow` di `mlflow-server`:
+
+- `/mlflow/mlflow.db`: metadata eksperimen, run, dan Model Registry (SQLite).
+- `/mlflow/artifacts`: artefak model, dilayani melalui artifact proxy MLflow.
+
+API mengakses artefak melalui MLflow dan tidak membutuhkan volume tersendiri.
+Untuk menghentikan lalu menjalankan kembali sistem tanpa menghapus data:
+
+```bash
+docker compose down
+docker compose up -d
+curl http://localhost:18000/health
+```
+
+Setelah API healthy, versi dan run ID harus sama seperti sebelum `down`.
+Jangan menambahkan `-v` pada `docker compose down` jika ingin mempertahankan data.
+
+Laporan teknis dan screenshot pengujian: [docs/lk09/laporan-lk09.pdf](docs/lk09/laporan-lk09.pdf).

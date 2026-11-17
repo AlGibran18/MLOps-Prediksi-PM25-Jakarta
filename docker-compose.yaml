@@ -1,0 +1,65 @@
+name: pm25-jakarta
+
+services:
+  mlflow-server:
+    build:
+      context: .
+      target: mlflow-server
+    image: pm25-jakarta-mlflow:lk09
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /mlflow/artifacts
+      - --allowed-hosts
+      - mlflow-server:5000,localhost:5000,127.0.0.1:5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    networks:
+      - mlops-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api-service:
+    build:
+      context: .
+      target: api-service
+    image: pm25-jakarta-api:lk09
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow-server:5000
+      MODEL_NAME: pm25-xgboost
+      NO_PROXY: mlflow-server,localhost,127.0.0.1
+      no_proxy: mlflow-server,localhost,127.0.0.1
+    ports:
+      - "18000:8000"
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+    networks:
+      - mlops-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+networks:
+  mlops-network:
+    driver: bridge
+
+volumes:
+  mlflow-data:
