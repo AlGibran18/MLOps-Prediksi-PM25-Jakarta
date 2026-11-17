@@ -1,6 +1,0 @@
-LOG VERIFIKASI LK-09
-Perintah: docker compose ps (format Service, State, Status)
-
-SERVICE         STATE     STATUS
-api-service     running   Up 4 minutes (healthy)
-mlflow-server   running   Up 5 minutes (healthy)

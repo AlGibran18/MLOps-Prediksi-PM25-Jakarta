@@ -10,6 +10,8 @@ import mlflow
 from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 import pandas as pd
+from src.features.schema import PROTOCOL
+from src.models.train import verify_data_version
 from pydantic import BaseModel, Field, FiniteFloat
 
 LOGGER = logging.getLogger("uvicorn.error")
@@ -22,23 +24,29 @@ def initialize_model():
     """Registry Compose baru diisi sekali menggunakan pipeline dan snapshot proyek."""
     mlflow.set_tracking_uri(TRACKING_URI)
     client = MlflowClient()
+    checksum = verify_data_version("data/processed/features.csv")
+    needs_model = False
     try:
         version = client.get_model_version_by_alias(MODEL_NAME, "production")
+        needs_model = (version.tags.get("data_version_md5") != checksum or version.tags.get("evaluation_protocol") != PROTOCOL)
     except MlflowException as exc:
         if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
             raise
-        LOGGER.info("Registry baru: menyiapkan model dari snapshot DVC proyek.")
+        needs_model = True
+    if needs_model:
+        LOGGER.info("Registry baru/lineage berubah: menyiapkan model dari snapshot DVC terverifikasi.")
         run_name = "lk09-compose-bootstrap"
         commands = [
-            ["src/models/train.py", "--run_name", run_name, "--n_estimators", "100",
-             "--learning_rate", "0.08", "--max_depth", "3", "--subsample", "0.9",
-             "--colsample_bytree", "0.9"],
-            ["src/models/evaluate_model.py", "--run_name", run_name],
-            ["src/models/registry_ops.py", "register", "--run_name", run_name],
-            ["src/models/registry_ops.py", "promote", "--best", "--stage", "Production"],
+            ["src.models.train", "--run_name", run_name, "--n_estimators", "200",
+             "--learning_rate", "0.05", "--max_depth", "3", "--subsample", "1.0",
+             "--colsample_bytree", "1.0"],
+            ["src.models.evaluate_model", "--run_name", run_name],
+            ["src.models.registry_ops", "register", "--run_name", run_name],
+            ["src.models.registry_ops", "promote", "--best", "--stage", "Staging"],
+            ["src.models.registry_ops", "promote", "--best", "--stage", "Production"],
         ]
         for script, *args in commands:
-            subprocess.run([sys.executable, script, "--tracking_uri", TRACKING_URI, *args], check=True)
+            subprocess.run([sys.executable, "-m", script, "--tracking_uri", TRACKING_URI, *args], check=True)
         version = client.get_model_version_by_alias(MODEL_NAME, "production")
     # Pin versi agar identitas pada health sama dengan artefak yang dimuat.
     model = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}/{version.version}")

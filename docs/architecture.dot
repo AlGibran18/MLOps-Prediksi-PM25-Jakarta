@@ -1,0 +1,22 @@
+digraph MLOps {
+  graph [rankdir=TB, bgcolor="white", fontname="DejaVu Sans", pad=.25, nodesep=.35, ranksep=.45];
+  node [shape=box, style="rounded,filled", fillcolor="#edf4ff", color="#5275a3", fontname="DejaVu Sans", fontsize=11];
+  edge [fontname="DejaVu Sans", fontsize=9, color="#486581"];
+  api [label="OpenWeatherMap API\nHTTPS, koordinat Jakarta"];
+  sim [label="Simulasi eksplisit\n--simulate; source=simulation",fillcolor="#fff2d6"];
+  ingest [label="src/data/ingest_data.py\nvalidasi, append, deduplikasi per jam"];
+  raw [label="data/raw/air_quality_raw.csv\nprovenance sumber; DVC MD5"];
+  prep [label="src/features/preprocess.py\ngrid 1 jam, WIB, isi dari masa lalu\nlag 1-6 jam, label observasi +3 jam"];
+  features [label="data/processed/features.csv\n38 fitur; target_timestamp; DVC MD5"];
+  train [label="Train / Validation / Test\npurge 3 jam pada kedua batas\nXGBoost, MLflow; pilih val_rmse"];
+  gate [label="Gerbang evaluasi\nMAE test <= 15 ug/m3"];
+  registry [label="MLflow Registry\nNone -> Staging -> Production\nalias production/champion"];
+  serving [label="API inferensi\nmuat artefak MLflow melalui HTTP"];
+  store [label="dvc_ci_store / MinIO\nraw, fitur, metadata model",shape=cylinder,fillcolor="#e8f5e9"];
+  git [label="GitHub Actions\npush/PR -> test -> train\n-> evaluate -> Staging",fillcolor="#e8f5e9"];
+  {rank=same; api; sim;}
+  api -> ingest;sim -> ingest [style=dashed,label="demo; tidak dicampur"];
+  ingest -> raw -> prep -> features -> train -> gate -> registry -> serving;
+  raw -> store [style=dashed];features -> store [style=dashed];registry -> store [style=dashed,label="registry_reference.yaml"];
+  git -> train [style=dashed,label="pemicu kode"];
+}

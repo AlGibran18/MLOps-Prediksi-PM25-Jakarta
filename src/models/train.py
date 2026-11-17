@@ -1,126 +1,152 @@
+"""XGBoost + MLflow dengan lineage checksum dan evaluasi temporal terpisah."""
 import argparse
-import os
-import re
+import hashlib
+from pathlib import Path
 
 import mlflow
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
+import yaml
 from mlflow.models import infer_signature
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
-TARGET_COL = "target_pm2_5_lead_3"
-TIME_COL_CANDIDATES = ["datetime", "timestamp", "date", "time", "dt", "datetime_wib"]
-
-
-def parse_args():
-    p = argparse.ArgumentParser(description="Train XGBoost PM2.5 + MLflow tracking")
-    p.add_argument("--data_path", default="data/processed/features.csv")
-    p.add_argument("--tracking_uri", default="sqlite:///mlflow.db")
-    p.add_argument("--experiment_name", default="PM25-Jakarta-XGBoost")
-    p.add_argument("--run_name", default=None)
-    p.add_argument("--test_size", type=float, default=0.2)
-    p.add_argument("--random_state", type=int, default=42)
-    # Hyperparameter XGBoost
-    p.add_argument("--n_estimators", type=int, default=150)
-    p.add_argument("--learning_rate", type=float, default=0.1)
-    p.add_argument("--max_depth", type=int, default=3)
-    p.add_argument("--subsample", type=float, default=1.0)
-    p.add_argument("--colsample_bytree", type=float, default=1.0)
-    return p.parse_args()
-
-
-def load_data(path):
-    """Baca fitur, urutkan berdasarkan waktu (jika ada), pisahkan X dan y."""
-    df = pd.read_csv(path)
-    if TARGET_COL not in df.columns:
-        raise ValueError(f"Kolom target '{TARGET_COL}' tidak ada. Kolom: {list(df.columns)}")
-
-    time_col = next((c for c in TIME_COL_CANDIDATES if c in df.columns), None)
-    if time_col is not None:
-        df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
-        df = df.sort_values(time_col).reset_index(drop=True)
-
-    df = df.dropna(subset=[TARGET_COL])
-    X = df.drop(columns=[TARGET_COL]).select_dtypes(include=[np.number])
-    X = X.fillna(X.median(numeric_only=True))
-    y = df[TARGET_COL]
-    return X, y
-
-
-def chronological_split(X, y, test_size):
-    """Split berurutan waktu (tanpa shuffle) agar tidak ada kebocoran data."""
-    n_test = max(2, int(len(X) * test_size))
-    n_train = len(X) - n_test
-    if n_train < 2:
-        raise ValueError(f"Data terlalu sedikit ({len(X)} baris) untuk dilatih.")
-    return X.iloc[:n_train], X.iloc[n_train:], y.iloc[:n_train], y.iloc[n_train:]
+from src.features.schema import EXPERIMENT, FEATURE_COLUMNS, HORIZON, PROTOCOL, TARGET_COL
 
 
 def get_dvc_md5(dvc_file):
-    """Ambil hash versi data dari file .dvc agar run MLflow terhubung ke versi data LK-05."""
     try:
-        with open(dvc_file) as f:
-            m = re.search(r"md5:\s*([0-9a-f]+)", f.read())
-        return m.group(1) if m else "unknown"
-    except OSError:
+        outs = yaml.safe_load(Path(dvc_file).read_text())["outs"]
+        return outs[0]["md5"]
+    except (OSError, KeyError, TypeError):
         return "unknown"
 
 
+def verify_data_version(path):
+    path = Path(path)
+    expected = get_dvc_md5(str(path)+".dvc")
+    actual = hashlib.md5(path.read_bytes()).hexdigest()
+    if expected != actual:
+        raise ValueError(f"Lineage tidak cocok: {path}; pointer={expected}, aktual={actual}. Jalankan dvc add.")
+    return actual
+
+
+def load_frame(path):
+    df = pd.read_csv(path)
+    required = {"timestamp", "target_timestamp", "source", TARGET_COL, *FEATURE_COLUMNS}
+    if required - set(df):
+        raise ValueError(f"Kolom fitur kurang: {sorted(required - set(df))}")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="raise")
+    df["target_timestamp"] = pd.to_datetime(df["target_timestamp"], utc=True, errors="raise")
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    if df["timestamp"].duplicated().any():
+        raise ValueError("Timestamp fitur duplikat")
+    if not (df["target_timestamp"] == df["timestamp"]+pd.Timedelta(hours=HORIZON)).all():
+        raise ValueError("Waktu label harus tepat +3 jam")
+    if not (df["timestamp"].diff().dropna() >= pd.Timedelta(hours=1)).all():
+        raise ValueError("Timestamp fitur minimal berjarak 1 jam")
+    if df["source"].nunique() != 1 or df["source"].isna().any():
+        raise ValueError("Provenance sumber tidak konsisten")
+    values = df[FEATURE_COLUMNS+[TARGET_COL]].to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("Fitur/label tidak finite; perbaiki preprocessing, bukan imputasi seluruh dataset")
+    return df
+
+
+def load_data(path):
+    df = load_frame(path)
+    return df[FEATURE_COLUMNS].copy(), df[TARGET_COL].copy()
+
+
+def chronological_split(X, y, test_size=0.2, gap=HORIZON):
+    if not 0 < test_size < 1 or gap < HORIZON:
+        raise ValueError("test_size harus (0,1), gap minimal horizon 3 jam")
+    n_test = max(2, int(len(X)*test_size))
+    end_train = len(X)-n_test-gap
+    if end_train < 2:
+        raise ValueError("Data terlalu sedikit untuk split temporal dengan purge")
+    return X.iloc[:end_train], X.iloc[-n_test:], y.iloc[:end_train], y.iloc[-n_test:]
+
+
+def temporal_indices(n, test_size=.2, validation_size=.2, gap=HORIZON):
+    if not 0 < test_size < 1 or not 0 < validation_size < 1 or gap < HORIZON:
+        raise ValueError("Fraksi split tidak valid atau gap kurang dari horizon")
+    n_test, n_val = max(2, int(n*test_size)), max(2, int(n*validation_size))
+    test_start = n-n_test
+    val_end, val_start = test_start-gap, test_start-gap-n_val
+    train_end = val_start-gap
+    if train_end < 2:
+        raise ValueError("Data terlalu sedikit untuk train/validation/test dengan dua purge")
+    return slice(0, train_end), slice(val_start, val_end), slice(test_start, n)
+
+
+def metrics(y, prediction):
+    return {"rmse": float(np.sqrt(mean_squared_error(y, prediction))),
+            "mae": float(mean_absolute_error(y, prediction)),
+            "r2": float(r2_score(y, prediction))}
+
+
 def main():
-    args = parse_args()
-    mlflow.set_tracking_uri(args.tracking_uri)
+    p = argparse.ArgumentParser()
+    p.add_argument("--data_path", default="data/processed/features.csv")
+    p.add_argument("--raw_path", default="data/raw/air_quality_raw.csv")
+    p.add_argument("--tracking_uri", default=None)
+    p.add_argument("--experiment_name", default=EXPERIMENT)
+    p.add_argument("--run_name", default=None)
+    p.add_argument("--test_size", type=float, default=.2)
+    p.add_argument("--validation_size", type=float, default=.2)
+    p.add_argument("--random_state", type=int, default=42)
+    p.add_argument("--n_estimators", type=int, default=150)
+    p.add_argument("--learning_rate", type=float, default=.1)
+    p.add_argument("--max_depth", type=int, default=3)
+    p.add_argument("--subsample", type=float, default=1.)
+    p.add_argument("--colsample_bytree", type=float, default=1.)
+    args = p.parse_args()
+    if args.tracking_uri:
+        mlflow.set_tracking_uri(args.tracking_uri)
+    elif not __import__('os').getenv('MLFLOW_TRACKING_URI'):
+        mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    data_md5 = verify_data_version(args.data_path)
+    raw_md5 = verify_data_version(args.raw_path)
+    df = load_frame(args.data_path)
+    X, y = df[FEATURE_COLUMNS], df[TARGET_COL]
+    train, val, test = temporal_indices(len(df), args.test_size, args.validation_size)
+    # Buktikan label train telah tersedia sebelum origin validation/test.
+    assert df.iloc[train]["target_timestamp"].max() < df.iloc[val]["timestamp"].min()
+    assert df.iloc[val]["target_timestamp"].max() < df.iloc[test]["timestamp"].min()
+    params = {name: getattr(args, name) for name in ["n_estimators", "learning_rate", "max_depth",
+              "subsample", "colsample_bytree", "random_state"]}
     mlflow.set_experiment(args.experiment_name)
-
-    X, y = load_data(args.data_path)
-    X_train, X_test, y_train, y_test = chronological_split(X, y, args.test_size)
-
-    params = {
-        "n_estimators": args.n_estimators,
-        "learning_rate": args.learning_rate,
-        "max_depth": args.max_depth,
-        "subsample": args.subsample,
-        "colsample_bytree": args.colsample_bytree,
-        "random_state": args.random_state,
-    }
-
-    with mlflow.start_run(run_name=args.run_name):
-        # --- Log parameter ---
-        mlflow.log_params(params)
-        mlflow.log_param("model_type", "XGBRegressor")
-        mlflow.log_param("n_features", X.shape[1])
-        mlflow.log_param("n_train_rows", len(X_train))
-        mlflow.log_param("n_test_rows", len(X_test))
-        mlflow.set_tag("data_version_md5", get_dvc_md5(args.data_path + ".dvc"))
-        mlflow.set_tag("task", "PM2.5 forecasting +3h")
-
-        # --- Training ---
-        model = XGBRegressor(objective="reg:squarederror", **params)
-        model.fit(X_train, y_train)
-
-        # --- Evaluasi & log metrik ---
-        pred_train = model.predict(X_train)
-        pred_test = model.predict(X_test)
-        rmse = float(np.sqrt(mean_squared_error(y_test, pred_test)))
-        mae = float(mean_absolute_error(y_test, pred_test))
-        r2 = float(r2_score(y_test, pred_test)) if len(y_test) > 1 else float("nan")
-        mlflow.log_metric("rmse", rmse)
-        mlflow.log_metric("mae", mae)
-        mlflow.log_metric("r2", r2)
-        mlflow.log_metric("train_rmse", float(np.sqrt(mean_squared_error(y_train, pred_train))))
-
-        # --- Log model (artefak) ---
-        signature = infer_signature(X_train, pred_train)
-        mlflow.xgboost.log_model(
-            model,
-            name="model",
-            signature=signature,
-            input_example=X_train.head(3),
-        )
-
-        print(f"[OK] run_id={mlflow.active_run().info.run_id} | "
-              f"RMSE={rmse:.4f} MAE={mae:.4f} R2={r2:.4f} | params={params}")
+    with mlflow.start_run(run_name=args.run_name) as run:
+        mlflow.log_params({**params, "model_type": "XGBRegressor", "n_features": X.shape[1],
+            "n_train_rows": len(X.iloc[train]), "n_validation_rows": len(X.iloc[val]),
+            "n_test_rows": len(X.iloc[test]), "purge_hours": HORIZON,
+            "selection_metric": "val_rmse", "test_size": args.test_size,
+            "validation_size": args.validation_size})
+        mlflow.set_tags({"data_version_md5": data_md5, "raw_data_version_md5": raw_md5,
+                         "evaluation_protocol": PROTOCOL, "data_source": df['source'].iloc[0],
+                         "task": "PM2.5 forecasting +3h"})
+        bounds = {"train_label_end": str(df.iloc[train]['target_timestamp'].max()),
+                  "validation_start": str(df.iloc[val]['timestamp'].min()),
+                  "validation_label_end": str(df.iloc[val]['target_timestamp'].max()),
+                  "test_start": str(df.iloc[test]['timestamp'].min())}
+        mlflow.log_params(bounds)
+        model = XGBRegressor(objective="reg:squarederror", n_jobs=2, **params)
+        model.fit(X.iloc[train], y.iloc[train])
+        validation = metrics(y.iloc[val], model.predict(X.iloc[val]))
+        testing = metrics(y.iloc[test], model.predict(X.iloc[test]))
+        mlflow.log_metrics({**testing, **{f"val_{k}": v for k,v in validation.items()},
+                           "train_rmse": metrics(y.iloc[train], model.predict(X.iloc[train]))['rmse']})
+        # Persistence baseline: ramalan +3h sama dengan PM2.5 saat ini.
+        mlflow.log_metrics({f"baseline_{k}": v for k,v in metrics(y.iloc[test], X.iloc[test]['pm2_5']).items()})
+        mlflow.log_dict({"data_md5":data_md5,"raw_md5":raw_md5,"source":df['source'].iloc[0],
+                         "protocol":PROTOCOL,**bounds}, "data_lineage.json")
+        mlflow.xgboost.log_model(model, name="model", signature=infer_signature(X.iloc[train], model.predict(X.iloc[train])),
+            input_example=X.iloc[train].head(3),
+            pip_requirements=["mlflow-skinny==3.17.1", "xgboost-cpu==3.4.1", "numpy==2.5.5", "pandas==3.0.6", "scikit-learn==1.9.1"])
+        print(f"[OK] run_id={run.info.run_id}; val_rmse={validation['rmse']:.4f}; "
+              f"test_rmse={testing['rmse']:.4f}; test_mae={testing['mae']:.4f}; data={data_md5}")
 
 
 if __name__ == "__main__":

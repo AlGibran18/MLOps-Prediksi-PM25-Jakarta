@@ -222,3 +222,10 @@ mlruns/
 
 # Permintaan contoh hasil verifikasi LK-09
 request.json
+
+# Laporan akademik dan screenshot laporan disimpan di luar repo.
+*.pdf
+reports/
+docs/reports/
+docs/evidence/
+docs/lk09/

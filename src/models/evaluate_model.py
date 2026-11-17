@@ -7,6 +7,7 @@ sehingga job berikutnya (pendaftaran ke Registry) tidak berjalan.
 """
 import argparse
 import os
+import math
 import sys
 
 import mlflow
@@ -24,7 +25,7 @@ def check_thresholds(metrics, thresholds):
         if limit is None:
             continue
         value = metrics.get(metric)
-        if value is None or value != value:  # hilang atau NaN
+        if value is None or not math.isfinite(value):  # hilang atau NaN
             violations.append(f"{metric}: nilai tidak tersedia (hilang/NaN)")
         elif kind == "max" and value > limit:
             violations.append(f"{metric}={value:.4f} melebihi batas maksimum {limit}")
@@ -35,8 +36,8 @@ def check_thresholds(metrics, thresholds):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--tracking_uri", default="sqlite:///mlflow.db")
-    p.add_argument("--experiment_name", default="PM25-Jakarta-XGBoost")
+    p.add_argument("--tracking_uri", default=__import__("os").getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"))
+    p.add_argument("--experiment_name", default="PM25-Jakarta-XGBoost-Corrected")
     p.add_argument("--run_name", default=None, help="kosong = run terbaru")
     p.add_argument("--thresholds", default="configs/thresholds.yaml")
     args = p.parse_args()
@@ -53,6 +54,8 @@ def main():
     if not runs:
         sys.exit("[GAGAL] Tidak ada run yang dievaluasi.")
     run = runs[0]
+    if run.info.status != "FINISHED":
+        sys.exit("[GAGAL] Run belum FINISHED.")
 
     with open(args.thresholds) as f:
         thresholds = yaml.safe_load(f) or {}

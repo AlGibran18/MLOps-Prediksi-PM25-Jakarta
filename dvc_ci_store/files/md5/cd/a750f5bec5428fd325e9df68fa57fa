@@ -1,0 +1,47 @@
+registered_model_name: pm25-xgboost
+version: 2
+stage: Production
+aliases:
+- champion
+- production
+model_uri_stage: models:/pm25-xgboost/Production
+model_uri_alias: models:/pm25-xgboost@production
+run_id: ec27aa1d8e074548883cf2b6f2ba7b46
+run_name: run2-more-trees
+data_version_md5: 65c3e5aaa6d16236bd260ce73ee8a298
+raw_data_version_md5: fadb38dde13da2dd352faa8f7733344e
+evaluation_protocol: purged_temporal_v1
+data_source: simulation
+selection_metric: val_rmse
+params:
+  n_estimators: '200'
+  learning_rate: '0.05'
+  max_depth: '3'
+  subsample: '1.0'
+  colsample_bytree: '1.0'
+  random_state: '42'
+  model_type: XGBRegressor
+  n_features: '38'
+  n_train_rows: '191'
+  n_validation_rows: '65'
+  n_test_rows: '65'
+  purge_hours: '3'
+  selection_metric: val_rmse
+  test_size: '0.2'
+  validation_size: '0.2'
+  train_label_end: '2026-09-09 07:00:00+00:00'
+  validation_start: '2026-09-09 08:00:00+00:00'
+  validation_label_end: '2026-09-12 03:00:00+00:00'
+  test_start: '2026-09-12 04:00:00+00:00'
+metrics:
+  rmse: 2.3269
+  mae: 1.9164
+  r2: 0.8631
+  val_rmse: 2.443
+  val_mae: 1.9277
+  val_r2: 0.8599
+  train_rmse: 0.4774
+  baseline_rmse: 5.5092
+  baseline_mae: 4.5608
+  baseline_r2: 0.2326
+exported_at: '2026-11-17T15:27:28.067155+07:00'
