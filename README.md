@@ -70,23 +70,38 @@ Proyek menggunakan **GitHub Flow**: buat branch fitur/perbaikan, lakukan validas
 Struktur proyek memisahkan data mentah, data olahan, source code, eksperimen, model, dan konfigurasi layanan:
 
 ```text
-.devcontainer/          Lingkungan Codespaces Python 3.12
-.github/workflows/      Test → train → evaluate → registry Staging
-configs/                Ambang evaluasi
-src/data/               Ingestion aktual atau simulasi eksplisit
-src/features/           Kontrak fitur dan preprocessing temporal
-src/models/             Training, evaluasi, register, promosi, inferensi
-src/api/                API prediksi
-samples/                Contoh raw kecil dengan provenance
-data/raw/               CSV raw beserta pointer DVC
-data/processed/         CSV fitur beserta pointer DVC
-models/                 Referensi registry yang dilacak DVC
-dvc_ci_store/           Objek demo kecil untuk reproduksi tanpa MinIO
-notebooks/              Tempat eksplorasi tambahan
-tests/                  Pengujian data, temporal, lineage, gate, API
-docs/                   Diagram, rencana pipeline, dan metadata teknis
-Dockerfile              Target image server MLflow dan API
-docker-compose.yaml     Dua layanan, network, volume, healthcheck
+.
+├── .devcontainer/              # Lingkungan Codespaces Python 3.12
+├── .dvc/                       # Konfigurasi versioning dan remote DVC
+├── .github/
+│   └── workflows/              # Test → train → evaluate → registry Staging
+├── configs/                    # Ambang evaluasi model
+├── data/
+│   ├── raw/                    # Data mentah beserta pointer DVC
+│   └── processed/              # Fitur siap latih beserta pointer DVC
+├── docker/                     # Skrip pendukung startup layanan
+├── docs/                       # Diagram, rencana pipeline, dan metadata teknis
+├── dvc_ci_store/               # Objek demo kecil untuk reproduksi tanpa MinIO
+├── models/                     # Referensi registry yang dilacak DVC
+├── notebooks/                  # Eksplorasi data dan eksperimen tambahan
+├── samples/                    # Contoh data mentah dengan provenance
+├── src/
+│   ├── api/                    # API prediksi
+│   ├── data/                   # Ingestion aktual atau simulasi eksplisit
+│   ├── features/               # Kontrak fitur dan preprocessing temporal
+│   └── models/                 # Training, evaluasi, registry, dan inferensi
+├── tests/                      # Pengujian data, temporal, lineage, gate, dan API
+├── .env.example                # Contoh variabel lingkungan
+├── .gitignore                  # Berkas lokal yang diabaikan Git
+├── Dockerfile                  # Target image server MLflow dan API
+├── docker-compose.yaml         # Dua layanan, network, volume, dan healthcheck
+├── requirements.txt            # Dependensi inti pelatihan model
+├── requirements-dev.txt        # Dependensi pengembangan dan pengujian
+├── requirements-mlflow.txt     # Dependensi server MLflow
+├── requirements-serving.txt    # Dependensi layanan inferensi
+├── run_experiments.sh          # Menjalankan variasi eksperimen model
+├── LICENSE                     # Lisensi MIT
+└── README.md                   # Dokumentasi utama proyek
 ```
 
 ## Arsitektur Pipeline Data
