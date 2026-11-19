@@ -80,7 +80,7 @@ Struktur proyek memisahkan data mentah, data olahan, source code, eksperimen, mo
 ├── data/
 │   ├── raw/                    # Data mentah beserta pointer DVC
 │   └── processed/              # Fitur siap latih beserta pointer DVC
-├── docker/                     # Skrip pendukung startup layanan
+├── docker/                     # Pemulihan data dan build image serving
 ├── docs/                       # Diagram, rencana pipeline, dan metadata teknis
 ├── dvc_ci_store/               # Objek demo kecil untuk reproduksi tanpa MinIO
 ├── models/                     # Referensi registry yang dilacak DVC
@@ -95,7 +95,7 @@ Struktur proyek memisahkan data mentah, data olahan, source code, eksperimen, mo
 ├── .env.example                # Contoh variabel lingkungan
 ├── .gitignore                  # Berkas lokal yang diabaikan Git
 ├── Dockerfile                  # Target image server MLflow dan API
-├── docker-compose.yaml         # Dua layanan, network, volume, dan healthcheck
+├── docker-compose.yaml         # Layanan, network, volume, dan profil tiga replika
 ├── requirements.txt            # Dependensi inti pelatihan model
 ├── requirements-dev.txt        # Dependensi pengembangan dan pengujian
 ├── requirements-mlflow.txt     # Dependensi server MLflow
