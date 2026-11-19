@@ -63,7 +63,6 @@ services:
     deploy:
       replicas: 3
     environment:
-      DISABLE_NGINX: "true"
       MLFLOW_MODELS_WORKERS: "1"
     ports:
       - "127.0.0.1::8080"
