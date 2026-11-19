@@ -1,4 +1,4 @@
-name: MLOps Automation (LK-08)
+name: MLOps Automation
 
 # Code as a Trigger: perubahan kode/konfigurasi/data memicu seluruh pipeline.
 on:
