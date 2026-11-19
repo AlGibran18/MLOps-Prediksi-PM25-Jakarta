@@ -13,6 +13,7 @@
 - [Model Registry dan Kesiapan Inferensi](#model-registry-dan-kesiapan-inferensi)
 - [Otomatisasi Pipeline dengan GitHub Actions](#otomatisasi-pipeline-dengan-github-actions)
 - [Orkestrasi Layanan dengan Docker Compose](#orkestrasi-layanan-dengan-docker-compose)
+- [Model Serving dan Replikasi dengan MLflow Models](#model-serving-dan-replikasi-dengan-mlflow-models)
 
 ## Latar Belakang dan Tujuan Proyek
 
@@ -89,7 +90,7 @@ Struktur proyek memisahkan data mentah, data olahan, source code, eksperimen, mo
 │   ├── api/                    # API prediksi
 │   ├── data/                   # Ingestion aktual atau simulasi eksplisit
 │   ├── features/               # Kontrak fitur dan preprocessing temporal
-│   └── models/                 # Training, evaluasi, registry, dan inferensi
+│   └── models/                 # Training, registry, inferensi, dan snapshot serving
 ├── tests/                      # Pengujian data, temporal, lineage, gate, dan API
 ├── .env.example                # Contoh variabel lingkungan
 ├── .gitignore                  # Berkas lokal yang diabaikan Git
@@ -389,3 +390,103 @@ curl -X POST http://localhost:18000/predict -H 'Content-Type: application/json' 
 ### Penyimpanan Persisten
 
 Untuk memeriksa persistensi, catat `/health`, jalankan `docker compose down` lalu `docker compose up -d`, tunggu healthy, dan bandingkan versi/run ID. `down` mempertahankan volume; opsi `down -v` menghapusnya.
+
+## Model Serving dan Replikasi dengan MLflow Models
+
+Layanan `model-serving` menggunakan server bawaan **MLflow Models**, dengan endpoint `/ping` dan `/invocations`. API FastAPI pada bagian sebelumnya tetap tersedia untuk alur orkestrasi awal. Profil `serving` menambahkan tiga replika dari satu image yang membungkus snapshot model Production; tidak ada training di dalam replika.
+
+### Persiapan Model Production
+
+Gunakan Python 3.12 dan dependensi pengembangan dari bagian infrastruktur. Jalankan dari root repo:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python docker/restore_features.py
+docker compose up -d --build --wait --wait-timeout 600
+export MLFLOW_TRACKING_URI=http://localhost:5000
+python -m src.models.registry_ops list
+python -m src.models.prepare_serving
+```
+
+`prepare_serving` memeriksa bahwa alias `production` menunjuk versi berstatus **Production**, run sudah FINISHED, checksum raw/fitur dan protokol cocok, serta metrik lolos gerbang kualitas. Skrip kemudian mengunduh **versi eksplisit** ke `build/serving/model`, menulis referensi versi/run ke `build/serving/model_reference.json`, dan membuat input `build/serving/request.json`. Direktori `build/` diabaikan Git. Jika verifikasi gagal, perbaiki model/dataset melalui alur registry sebelumnya; jangan mengubah status untuk melewati pemeriksaan.
+
+Pada registry Compose baru, startup API menyiapkan model menggunakan konfigurasi terpilih. Snapshot registry lokal lama dan registry Compose memiliki nomor versi/run ID yang dapat berbeda. Setiap replika pada satu deployment menggunakan snapshot image yang sama.
+
+### Serving Lokal dan Pengujian Endpoint
+
+Di terminal pertama, jalankan server MLflow Models:
+
+```bash
+mlflow models serve --model-uri build/serving/model --env-manager local --host 0.0.0.0 --port 18001 --workers 1
+```
+
+Opsi `--env-manager local` memakai dependensi Python yang telah dipasang. Di terminal kedua:
+
+```bash
+curl --fail-with-body -sS http://localhost:18001/ping
+curl --fail-with-body -sS http://localhost:18001/invocations \
+  -H 'Content-Type: application/json' \
+  --data-binary @build/serving/request.json
+python tests/smoke_model_serving.py --url http://localhost:18001
+```
+
+Input memakai format MLflow `dataframe_split` dengan 38 nama kolom dan nilai bertipe sesuai signature, bukan format `instances` milik API FastAPI sebelumnya. Respons MLflow berisi `predictions`; horizon tiga jam dan satuan µg/m³ mengikuti kontrak model proyek. Skrip pengujian membandingkan hasil endpoint dengan prediksi snapshot lokal. Hentikan server lokal menggunakan Ctrl+C setelah selesai.
+
+### Membangun Image Model
+
+```bash
+bash docker/build_serving_image.sh
+```
+
+Skrip memverifikasi dan mengambil snapshot Production, lalu menjalankan perintah resmi:
+
+```bash
+mlflow models build-docker \
+  --model-uri build/serving/model \
+  --name pm25-jakarta-model:production \
+  --env-manager local
+```
+
+Image menyertakan artefak model dan dependensinya, dengan port internal `8080`. Build memerlukan Docker dan akses unduhan dependensi. Untuk nama image lain, ekspor `MODEL_SERVING_IMAGE` sebelum menjalankan skrip dan Compose. Jika model Production berubah, bangun ulang image dan jalankan ulang layanan; image yang sudah dibangun tidak mengikuti perubahan alias secara otomatis.
+
+### Menjalankan dan Mengakses Tiga Replika
+
+```bash
+docker compose --profile serving up -d --wait --wait-timeout 600 model-serving
+docker compose --profile serving ps
+python tests/smoke_model_serving.py --expected 3
+```
+
+Konfigurasi `deploy: replicas: 3` berada pada layanan `model-serving` di `docker-compose.yaml`. Setiap replika memiliki healthcheck `/ping`, satu worker, dan port host otomatis yang dipublikasikan pada `127.0.0.1` agar tidak berbenturan. Lihat alamat replika pertama:
+
+```bash
+docker compose --profile serving port --index 1 model-serving 8080
+```
+
+Ganti `PORT_REPLIKA` dengan nomor port yang ditampilkan:
+
+```bash
+curl --fail-with-body -sS http://127.0.0.1:PORT_REPLIKA/invocations \
+  -H 'Content-Type: application/json' \
+  --data-binary @build/serving/request.json
+```
+
+Gunakan `--index 2` atau `--index 3` untuk alamat replika lainnya. Di Codespaces, forward port tersebut melalui tab **Ports** jika ingin mengaksesnya dari browser/Postman. Skrip `smoke_model_serving.py` otomatis menemukan dan menguji **seluruh** replika, memastikan container healthy, image sama, dan prediksi sesuai snapshot. Ini simulasi horizontal scaling dengan akses per replika; tidak ada load balancer atau autoscaling.
+
+### Mengubah Jumlah Replika
+
+```bash
+# Contoh mengubah menjadi dua replika.
+docker compose --profile serving up -d --wait --scale model-serving=2 model-serving
+python tests/smoke_model_serving.py --expected 2
+
+# Kembali ke tiga replika.
+docker compose --profile serving up -d --wait --scale model-serving=3 model-serving
+python tests/smoke_model_serving.py --expected 3
+```
+
+`--scale` mengubah jumlah container pada perintah tersebut. Nilai default dalam YAML tetap tiga. Untuk menghentikan hanya replika serving, gunakan `docker compose --profile serving stop model-serving`. `docker compose --profile serving down` menghapus seluruh container dan network proyek, dengan named volume tetap dipertahankan selama tidak menggunakan `-v`.
+
+### Catatan Jaringan Codespaces
+
+Jika MLflow healthy tetapi API timeout saat mengakses `mlflow-server:5000`, periksa DNS, jaringan container, dan aturan forwarding lingkungan. Pada pengujian sebelumnya terdapat konflik aturan nftables/iptables-legacy: chain FORWARD legacy berstatus DROP dan belum mengizinkan bridge Compose. Penyesuaian firewall harus dibatasi pada bridge/subnet proyek sesuai hasil diagnosis; jangan mematikan firewall secara global. Nama bridge dapat berubah setelah `down`/`up`. Konfigurasi repo tidak mengubah firewall host secara otomatis.

@@ -10,6 +10,9 @@ on:
       - "configs/**"
       - "data/**/*.dvc"
       - "requirements*.txt"
+      - "docker-compose.yaml"
+      - "Dockerfile"
+      - "docker/**"
       - ".github/workflows/mlops-automation.yaml"
   pull_request:
     branches: [main]
@@ -19,6 +22,9 @@ on:
       - "configs/**"
       - "data/**/*.dvc"
       - "requirements*.txt"
+      - "docker-compose.yaml"
+      - "Dockerfile"
+      - "docker/**"
       - ".github/workflows/mlops-automation.yaml"
   workflow_dispatch:
 
@@ -53,12 +59,33 @@ jobs:
         run: docker compose up -d --build --wait --wait-timeout 240
       - name: Verifikasi komunikasi, prediksi, lineage, dan persistensi volume
         run: python tests/smoke_compose.py
+      - name: Siapkan snapshot model Production untuk MLflow Models
+        run: python -m src.models.prepare_serving
+      - name: Uji serving lokal melalui MLflow Models
+        run: |
+          mlflow models serve -m build/serving/model --env-manager local --host 127.0.0.1 --port 18001 --workers 1 > /tmp/mlflow-models-serve.log 2>&1 &
+          serving_pid=$!
+          trap 'kill "$serving_pid" 2>/dev/null || true' EXIT
+          python tests/smoke_model_serving.py --url http://127.0.0.1:18001
+      - name: Bangun image menggunakan MLflow Models
+        run: bash docker/build_serving_image.sh
+      - name: Jalankan tiga replika serving
+        run: docker compose --profile serving up -d --wait --wait-timeout 300 model-serving
+      - name: Uji prediksi pada setiap replika dan perubahan jumlah replika
+        run: |
+          python tests/smoke_model_serving.py --expected 3
+          docker compose --profile serving up -d --wait --wait-timeout 300 --scale model-serving=2 model-serving
+          python tests/smoke_model_serving.py --expected 2
+          docker compose --profile serving up -d --wait --wait-timeout 300 --scale model-serving=3 model-serving
+          python tests/smoke_model_serving.py --expected 3
       - name: Log layanan untuk diagnosis
         if: failure()
-        run: docker compose logs --no-color
+        run: |
+          docker compose --profile serving logs --no-color
+          cat /tmp/mlflow-models-serve.log 2>/dev/null || true
       - name: Hentikan layanan setelah pengujian
         if: always()
-        run: docker compose down
+        run: docker compose --profile serving down
 
   # ---------------- Tahap 2: Automated Training ----------------
   train:
