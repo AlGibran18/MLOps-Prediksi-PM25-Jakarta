@@ -57,6 +57,24 @@ services:
       retries: 12
       start_period: 120s
 
+  model-serving:
+    profiles: [serving]
+    image: ${MODEL_SERVING_IMAGE:-pm25-jakarta-model:production}
+    deploy:
+      replicas: 3
+    environment:
+      MLFLOW_MODELS_WORKERS: "1"
+    ports:
+      - "127.0.0.1::8080"
+    networks:
+      - mlops-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
 networks:
   mlops-network:
     driver: bridge
