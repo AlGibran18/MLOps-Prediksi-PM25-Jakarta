@@ -13,6 +13,8 @@ on:
       - "docker-compose.yaml"
       - "Dockerfile"
       - "docker/**"
+      - "monitoring/**"
+      - "prometheus.yml"
       - ".github/workflows/mlops-automation.yaml"
   pull_request:
     branches: [main]
@@ -25,6 +27,8 @@ on:
       - "docker-compose.yaml"
       - "Dockerfile"
       - "docker/**"
+      - "monitoring/**"
+      - "prometheus.yml"
       - ".github/workflows/mlops-automation.yaml"
   workflow_dispatch:
 
@@ -52,7 +56,9 @@ jobs:
       - name: Pulihkan dataset DVC sebelum seluruh pengujian
         run: dvc pull -r ci_remote data/raw/air_quality_raw.csv.dvc data/processed/features.csv.dvc
       - name: Validasi manifest Compose
-        run: docker compose config --quiet
+        run: |
+          docker compose --profile monitoring config --quiet
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" prom/prometheus:v3.2.1 check config /etc/prometheus/prometheus.yml
       - name: Jalankan pytest
         run: pytest -v
       - name: Jalankan dua layanan Compose
@@ -78,14 +84,20 @@ jobs:
           python tests/smoke_model_serving.py --expected 2
           docker compose --profile serving up -d --wait --wait-timeout 300 --scale model-serving=3 model-serving
           python tests/smoke_model_serving.py --expected 3
+      - name: Jalankan Prometheus dan Grafana
+        run: docker compose --profile monitoring up -d --wait --wait-timeout 300 prometheus grafana
+      - name: Simulasi trafik ke tiga replika
+        run: python -m src.observability.load --duration 20 --rps 9
+      - name: Verifikasi scraping metrik dan data pada seluruh panel Grafana
+        run: python tests/smoke_observability.py
       - name: Log layanan untuk diagnosis
         if: failure()
         run: |
-          docker compose --profile serving logs --no-color
+          docker compose --profile monitoring logs --no-color
           cat /tmp/mlflow-models-serve.log 2>/dev/null || true
       - name: Hentikan layanan setelah pengujian
         if: always()
-        run: docker compose --profile serving down
+        run: docker compose --profile monitoring down
 
   # ---------------- Tahap 2: Automated Training ----------------
   train:

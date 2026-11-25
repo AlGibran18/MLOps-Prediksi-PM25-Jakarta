@@ -14,6 +14,7 @@
 - [Otomatisasi Pipeline dengan GitHub Actions](#otomatisasi-pipeline-dengan-github-actions)
 - [Orkestrasi Layanan dengan Docker Compose](#orkestrasi-layanan-dengan-docker-compose)
 - [Model Serving dan Replikasi dengan MLflow Models](#model-serving-dan-replikasi-dengan-mlflow-models)
+- [Observability dan Dashboard](#observability-dan-dashboard)
 
 ## Latar Belakang dan Tujuan Proyek
 
@@ -84,18 +85,21 @@ Struktur proyek memisahkan data mentah, data olahan, source code, eksperimen, mo
 ├── docs/                       # Diagram, rencana pipeline, dan metadata teknis
 ├── dvc_ci_store/               # Objek demo kecil untuk reproduksi tanpa MinIO
 ├── models/                     # Referensi registry yang dilacak DVC
+├── monitoring/                 # Provisioning datasource dan dashboard Grafana
 ├── notebooks/                  # Eksplorasi data dan eksperimen tambahan
 ├── samples/                    # Contoh data mentah dengan provenance
 ├── src/
 │   ├── api/                    # API prediksi
 │   ├── data/                   # Ingestion aktual atau simulasi eksplisit
 │   ├── features/               # Kontrak fitur dan preprocessing temporal
-│   └── models/                 # Training, registry, inferensi, dan snapshot serving
+│   ├── models/                 # Training, registry, inferensi, dan snapshot serving
+│   └── observability/          # Instrumentasi serving dan simulasi trafik
 ├── tests/                      # Pengujian data, temporal, lineage, gate, dan API
 ├── .env.example                # Contoh variabel lingkungan
 ├── .gitignore                  # Berkas lokal yang diabaikan Git
 ├── Dockerfile                  # Target image server MLflow dan API
-├── docker-compose.yaml         # Layanan, network, volume, dan profil tiga replika
+├── docker-compose.yaml         # Serving, monitoring, network, dan volume
+├── prometheus.yml              # Scraping setiap replika melalui DNS Docker
 ├── requirements.txt            # Dependensi inti pelatihan model
 ├── requirements-dev.txt        # Dependensi pengembangan dan pengujian
 ├── requirements-mlflow.txt     # Dependensi server MLflow
@@ -438,16 +442,16 @@ Input memakai format MLflow `dataframe_split` dengan 38 nama kolom dan nilai ber
 bash docker/build_serving_image.sh
 ```
 
-Skrip memverifikasi dan mengambil snapshot Production, lalu menjalankan perintah resmi:
+Skrip memverifikasi dan mengambil snapshot Production, lalu menjalankan perintah resmi untuk image dasar:
 
 ```bash
 mlflow models build-docker \
   --model-uri build/serving/model \
-  --name pm25-jakarta-model:production \
+  --name pm25-jakarta-model:mlflow-base \
   --env-manager local
 ```
 
-Image menyertakan artefak model dan dependensinya, dengan port internal `8080`. Build memerlukan Docker dan akses unduhan dependensi. Untuk nama image lain, ekspor `MODEL_SERVING_IMAGE` sebelum menjalankan skrip dan Compose. Jika model Production berubah, bangun ulang image dan jalankan ulang layanan; image yang sudah dibangun tidak mengikuti perubahan alias secara otomatis.
+Image dasar menyertakan artefak model dan dependensinya. Skrip kemudian memakai `docker/Dockerfile.observability` untuk menambahkan gateway metrik dan menghasilkan image akhir `pm25-jakarta-model:production` dengan port `8080`. Model tetap dilayani oleh `mlflow models serve` pada port internal `127.0.0.1:8000`; gateway meneruskan permintaan `/invocations` tanpa mengubah input/output. Gunakan skrip build lengkap agar image akhir menyediakan `/metrics`. Build memerlukan Docker dan akses unduhan dependensi. Untuk nama image lain, ekspor `MODEL_SERVING_IMAGE` sebelum menjalankan skrip dan Compose. Jika model Production berubah, bangun ulang image dan jalankan ulang layanan; image yang sudah dibangun tidak mengikuti perubahan alias secara otomatis.
 
 ### Menjalankan dan Mengakses Tiga Replika
 
@@ -490,3 +494,87 @@ python tests/smoke_model_serving.py --expected 3
 ### Catatan Jaringan Codespaces
 
 Jika MLflow healthy tetapi API timeout saat mengakses `mlflow-server:5000`, periksa DNS, jaringan container, dan aturan forwarding lingkungan. Pada pengujian sebelumnya terdapat konflik aturan nftables/iptables-legacy: chain FORWARD legacy berstatus DROP dan belum mengizinkan bridge Compose. Penyesuaian firewall harus dibatasi pada bridge/subnet proyek sesuai hasil diagnosis; jangan mematikan firewall secara global. Nama bridge dapat berubah setelah `down`/`up`. Konfigurasi repo tidak mengubah firewall host secara otomatis.
+
+## Observability dan Dashboard
+
+Setiap replika `model-serving` menyediakan `/metrics` melalui gateway tipis pada port `8080`. Prediksi tetap dilakukan oleh server MLflow Models di dalam **replika yang sama**, pada `127.0.0.1:8000`. Tidak ada layanan inferensi pengganti atau model baru. Supervisor menghentikan container jika server MLflow atau gateway berhenti. Endpoint `/ping` hanya sehat setelah backend MLflow siap.
+
+### Menjalankan Monitoring
+
+Prasyarat: dependensi pengembangan sudah terpasang, dataset dipulihkan, dan layanan MLflow/API pada bagian orkestrasi healthy. Gunakan environment Python 3.12 yang sama dengan model. Dari root repo:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python docker/restore_features.py
+docker compose up -d --build --wait --wait-timeout 600
+export MLFLOW_TRACKING_URI=http://localhost:5000
+bash docker/build_serving_image.sh
+docker compose --profile monitoring up -d --wait --wait-timeout 600
+docker compose --profile monitoring ps
+```
+
+Bangun ulang image walaupun image lama dari tahap serving masih tersedia: versi lama belum memiliki instrumentasi. Profil `monitoring` mengaktifkan tiga replika model, Prometheus, dan Grafana; layanan MLflow/API tetap tersedia. `prometheus.yml` menggunakan DNS discovery `model-serving:8080`, dengan refresh dan scrape setiap **5 detik**, sehingga setiap alamat replika menjadi target terpisah. Tidak menggunakan satu target yang hanya mengarah ke satu replika.
+
+| Layanan | Alamat dari host/Codespaces | Fungsi |
+|---|---|---|
+| Prometheus | http://localhost:9090 | Scraping dan penyimpanan time series |
+| Grafana | http://localhost:3000 | Dashboard operasional |
+| Model | Port otomatis dari `docker compose port` | `/ping`, `/invocations`, dan `/metrics` per replika |
+
+Gunakan tab **Ports** di Codespaces untuk membuka port 3000/9090 di browser. Login awal Grafana: `admin` / `admin`, lalu ikuti penggantian password jika diminta. Untuk kredensial awal lain, ekspor `GRAFANA_ADMIN_USER` dan `GRAFANA_ADMIN_PASSWORD` sebelum startup pertama; setelah volume Grafana terbentuk, perubahan password dilakukan melalui Grafana. Nilai ekspor jangan dimasukkan ke Git.
+
+Datasource Prometheus dan dashboard **PM2.5 Jakarta - Model Serving** tersedia otomatis melalui provisioning. Dashboard berada pada folder **PM2.5 Jakarta**, dengan UID `pm25-serving` (`/d/pm25-serving`). Named volume `prometheus-data` menyimpan data selama retensi tujuh hari, sedangkan `grafana-data` menyimpan data Grafana. File provisioning dan dashboard JSON tetap dikelola di Git. `docker compose --profile monitoring down` mempertahankan volume; jangan tambahkan `-v` jika ingin mempertahankan datanya.
+
+### Simulasi Beban pada Tiga Replika
+
+```bash
+python tests/smoke_model_serving.py --expected 3
+python -m src.observability.load --duration 180 --rps 6 --workers 6
+```
+
+Skrip memvariasikan baris fitur dari dataset demonstrasi yang sama, lalu mengirim permintaan round-robin **secara eksplisit ke port masing-masing replika**. `--rps` adalah target total request/detik, bukan per replika atau jaminan throughput. Permintaan yang tertunda dibatasi; ini simulasi trafik, bukan benchmark kapasitas atau load balancer. Ringkasan akhir menunjukkan sukses/gagal setiap replika. Model yang digunakan tetap berasal dari data simulasi, bukan pengamatan aktual Jakarta.
+
+Biarkan Grafana terbuka selama simulasi, gunakan rentang waktu 5–15 menit dan refresh 5 detik. Panel berbasis `rate(...[1m])` memerlukan minimal dua scrape dan akan turun kembali setelah trafik berhenti. `No data` sebelum scrape atau latensi kosong sebelum prediksi pertama belum membuktikan model rusak.
+
+### Memeriksa Scraping dan Dashboard
+
+1. Buka **Prometheus → Status → Targets**, atau `/targets`. Job `model-serving` harus memiliki **tiga target UP**.
+2. Jalankan query `up{job="model-serving"}`. Setiap replika harus bernilai 1.
+3. Buka dashboard Grafana dan jalankan simulasi di atas agar grafik aktif.
+4. Periksa metrik langsung pada replika pertama:
+
+```bash
+docker compose --profile monitoring port --index 1 model-serving 8080
+# Ganti PORT_REPLIKA dengan hasil perintah di atas.
+curl --fail -sS http://127.0.0.1:PORT_REPLIKA/metrics
+```
+
+Pengujian otomatis berikut memeriksa endpoint metrik, keberhasilan scraping ketiga replika, datasource Grafana, dan data numerik pada seluruh query panel:
+
+```bash
+python tests/smoke_observability.py
+```
+
+Jalankan setelah simulasi trafik. Skrip memakai kredensial awal Grafana dari environment atau default lokal. Jika password sudah diganti melalui UI, ekspor `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` sesuai kredensial saat ini sebelum menjalankannya. Pengujian juga mengirim satu input tidak valid ke setiap replika untuk memverifikasi pencatatan error; kenaikan metrik error saat tes ini merupakan hasil yang diharapkan.
+
+### Metrik dan Lingkup Pengukuran
+
+| Metrik | Makna |
+|---|---|
+| `model_inference_requests_total` | Request `/invocations` menurut replika dan status HTTP; healthcheck/scrape tidak ikut dihitung |
+| `model_inference_duration_seconds` | Histogram latensi handler HTTP, termasuk forwarding dan inferensi MLflow; bukan waktu komputasi model saja |
+| `model_prediction_pm25_ug_m3` | Histogram nilai prediksi sukses; satu batch dapat menambah lebih dari satu observasi |
+| `model_serving_process_cpu_seconds_total` | CPU kumulatif supervisor, gateway, dan proses MLflow turunannya; `100 * rate(...[1m])` memakai persen satu core |
+| `model_serving_process_memory_bytes` | Jumlah RSS keluarga proses serving; shared pages bisa terhitung berulang, **bukan RAM cgroup/container** |
+| `model_serving_info` | Identitas model, versi, dan run yang dibungkus image |
+
+Dashboard menyediakan jumlah target UP, total throughput, persentase error, rata-rata prediksi, latensi P50/P95, throughput per replika, CPU, RAM, rata-rata prediksi per replika, dan heatmap distribusi prediksi. Label `replica` membedakan container; identitas model tersedia melalui `model_serving_info`.
+
+### Membaca Indikasi Penurunan Performa
+
+- **Latensi naik dan CPU/RAM naik:** periksa saturasi proses atau permintaan yang lebih mahal. Ini masalah operasional yang belum tentu menunjukkan akurasi model menurun.
+- **Error meningkat atau target DOWN:** periksa input, log model, resource, dan jaringan. Target DOWN berarti scraping gagal; lihat error target untuk membedakan gangguan model dari gangguan monitoring.
+- **Distribusi prediksi berubah:** dapat menjadi sinyal perubahan input/perilaku model dan perlu dibandingkan dengan baseline serta versi model. Pergeseran keluaran saja belum membuktikan data drift ataupun model decay.
+- **Akurasi operasional:** hitung MAE/RMSE hanya setelah tersedia nilai aktual pada horizon +3 jam dan pasangan timestamp yang benar. Dashboard saat ini tidak mengarang nilai akurasi tanpa ground truth.
+
+Pemantauan ini mendukung investigasi proaktif, tetapi belum menerapkan alert otomatis, retraining, atau autoscaling. Simulasi round-robin menunjukkan metrik setiap replika, bukan bukti pembagian trafik oleh load balancer.
