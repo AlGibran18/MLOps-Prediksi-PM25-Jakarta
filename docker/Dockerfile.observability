@@ -1,0 +1,9 @@
+ARG MODEL_BASE_IMAGE=pm25-jakarta-model:mlflow-base
+FROM ${MODEL_BASE_IMAGE}
+COPY requirements-observability.txt /opt/observability/requirements.txt
+RUN pip install --no-cache-dir -r /opt/observability/requirements.txt
+COPY src/observability/ /opt/observability/
+COPY build/serving/model_reference.json /opt/observability/model_reference.json
+ENV MLFLOW_MODELS_WORKERS=1
+EXPOSE 8080
+ENTRYPOINT ["python", "/opt/observability/start.py"]
